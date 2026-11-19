@@ -3,6 +3,7 @@ import streamlit as st
 
 import nennkruemmung_stuetze as nk
 import unbewehrt_stuetze as ub
+import vergleich
 
 st.set_page_config(page_title="Tragfähigkeit von Betonstützen", page_icon="🏗️", layout="wide")
 st.title("🏗️ Tragfähigkeit von Betonstützen")
@@ -31,7 +32,7 @@ with st.sidebar:
     dl = st.selectbox("Längsstab Ø (mm)", nk.STAB_D, index=0, disabled=modus == "auto")
     n = st.selectbox("Anzahl Stäbe (min. 4)", nk.STAB_N, index=0, disabled=modus == "auto")
 
-top_bew, top_unb = st.tabs(["Bewehrte Stütze", "Unbewehrte Stütze"])
+top_bew, top_unb, top_vg = st.tabs(["Bewehrte Stütze", "Unbewehrte Stütze", "Vergleich bewehrt ↔ unbewehrt"])
 
 with top_bew:
     tab1, tab2, tab3 = st.tabs(["Einzelberechnung", "Varianten", "Vergleich mit mb"])
@@ -92,3 +93,6 @@ with top_unb:
         ub_text = st.text_area("Varianten", "20 20 150\n25 25 250 25 2,5\n30 30 400", height=120, key="ub_var")
         if st.button("Varianten rechnen 📋", key="ub_var_btn"):
             html(ub.varianten_unbewehrt(ub_text, ub_l0, ub_fck))
+
+with top_vg:
+    vergleich.seite(l0, fck, phi, c, bue, int(dl), int(n))
