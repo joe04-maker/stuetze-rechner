@@ -4,9 +4,9 @@ import streamlit as st
 import nennkruemmung_stuetze as nk
 import unbewehrt_stuetze as ub
 
-st.set_page_config(page_title="Stahlbetonstütze – Nennkrümmung", page_icon="🏗️", layout="wide")
-st.title("🏗️ Stahlbetonstütze – Nennkrümmungsverfahren")
-st.caption("DIN EN 1992-1-1 mit Nationalem Anhang Deutschland · Pendelstütze, Biegung um eine Achse")
+st.set_page_config(page_title="Tragfähigkeit von Betonstützen", page_icon="🏗️", layout="wide")
+st.title("🏗️ Tragfähigkeit von Betonstützen")
+st.caption("Bewehrte und unbewehrte Rechteckstütze · Nennkrümmungsverfahren nach DIN EN 1992-1-1 mit Nationalem Anhang Deutschland")
 
 
 def html(text):
