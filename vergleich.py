@@ -17,9 +17,9 @@ def _zahl(t):
 
 
 @st.cache_data(show_spinner=False)
-def n_rd_bewehrt(b, h, l0, fck, e0, phi, c, bue, d_l, n_st):
+def n_rd_bewehrt(b, h, l0, fck, e0, phi, c, bue, d_l, n_st, d1=0.0):
     """N_Rd,max [kN] der bewehrten Stütze, maßgebend ('Biegung'/'As,min')."""
-    S = nk.Stuetze(b=b * 10, h=h * 10, l0=l0 * 1000, fck=float(fck), d1=c + bue + d_l / 2.0,
+    S = nk.Stuetze(b=b * 10, h=h * 10, l0=l0 * 1000, fck=float(fck), d1=d1 if d1 else c + bue + d_l / 2.0,
                    e0=e0 * 10, phi_ef=phi)
     As = n_st * 3.141592653589793 * d_l ** 2 / 4.0
     bieg, asmin = nk.n_rd_biegung(S, As), nk.n_rd_asmin(S, As)
@@ -30,10 +30,10 @@ def n_rd_unbewehrt(b, h, l0, fck, e0):
     return ub.rechne_unbewehrt(b, h, l0, fck, e0, 1.0)["N_Rd"]
 
 
-def tabelle(faelle, l0, fck, phi, c, bue, d_l, n_st):
+def tabelle(faelle, l0, fck, phi, c, bue, d_l, n_st, d1=0.0):
     zeilen = []
     for b, h, e0 in faelle:
-        nb, massg = n_rd_bewehrt(b, h, l0, fck, e0, phi, c, bue, d_l, n_st)
+        nb, massg = n_rd_bewehrt(b, h, l0, fck, e0, phi, c, bue, d_l, n_st, d1)
         nu = n_rd_unbewehrt(b, h, l0, fck, e0)
         r = ub.rechne_unbewehrt(b, h, l0, fck, e0, 1.0)
         zeilen.append(dict(
@@ -61,12 +61,12 @@ def balken(df):
     return (basis.mark_bar() + text).properties(height=380)
 
 
-def linie(b, h, l0, fck, phi, c, bue, d_l, n_st, e_max, schritte):
+def linie(b, h, l0, fck, phi, c, bue, d_l, n_st, e_max, schritte, d1=0.0):
     daten = []
     for k in range(schritte + 1):
         e0 = e_max * k / schritte
         daten.append(dict(e0=e0, Stütze="unbewehrt", N=n_rd_unbewehrt(b, h, l0, fck, e0)))
-        daten.append(dict(e0=e0, Stütze="bewehrt", N=n_rd_bewehrt(b, h, l0, fck, e0, phi, c, bue, d_l, n_st)[0]))
+        daten.append(dict(e0=e0, Stütze="bewehrt", N=n_rd_bewehrt(b, h, l0, fck, e0, phi, c, bue, d_l, n_st, d1)[0]))
     df = pd.DataFrame(daten)
     return alt.Chart(df).mark_line(point=True).encode(
         x=alt.X("e0:Q", title="Lastausmitte e0 [cm]"),
@@ -78,10 +78,10 @@ def linie(b, h, l0, fck, phi, c, bue, d_l, n_st, e_max, schritte):
     ).properties(height=380)
 
 
-def seite(l0, fck, phi, c, bue, d_l, n_st):
+def seite(l0, fck, phi, c, bue, d_l, n_st, d1=0.0):
     st.markdown(f"Gleiche Stützen, **unbewehrt** (Skript-Rechenweg) gegen **bewehrt** ({n_st} Ø{d_l}, "
                 f"Nennkrümmungsverfahren). Knicklänge l₀ = {l0:g} m, C{fck}/{fck + 5}, c_nom = {c:g} mm, "
-                f"Bügel Ø{bue} und φ_ef = {phi:g} kommen aus der Seitenleiste. Bewehrung: immer wie dort "
+                f"Bügel Ø{bue}, d₁ = {('%g mm' % d1) if d1 else 'automatisch'} und φ_ef = {phi:g} kommen aus der Seitenleiste. Bewehrung: immer wie dort "
                 f"eingestellt (feste Stabwahl, auch im Automatik-Modus).")
     t1, t2, t3 = st.tabs(["Tabelle", "Balkendiagramm", "Verlauf über e0"])
     with t1:
@@ -105,7 +105,7 @@ def seite(l0, fck, phi, c, bue, d_l, n_st):
         if st.button("Vergleich berechnen 📊", type="primary", key="vg_btn") or st.session_state.get("vg_df") is not None:
             if faelle:
                 with st.spinner("Rechne …"):
-                    df = tabelle(faelle, l0, fck, phi, c, bue, d_l, n_st)
+                    df = tabelle(faelle, l0, fck, phi, c, bue, d_l, n_st, d1)
                 st.session_state["vg_df"] = df
         df = st.session_state.get("vg_df")
         if df is not None:
@@ -131,7 +131,7 @@ def seite(l0, fck, phi, c, bue, d_l, n_st):
         schritte = a4.selectbox("Punkte", [6, 8, 10, 12], index=2, key="vg_n")
         if st.button("Verlauf zeichnen 📈", key="vg_line_btn"):
             with st.spinner("Rechne …"):
-                st.session_state["vg_line"] = linie(b, h, l0, fck, phi, c, bue, d_l, n_st, e_max, schritte)
+                st.session_state["vg_line"] = linie(b, h, l0, fck, phi, c, bue, d_l, n_st, e_max, schritte, d1)
         if st.session_state.get("vg_line") is not None:
             st.altair_chart(st.session_state["vg_line"], width="stretch")
             st.caption("Hinweis: Die unbewehrte Kurve endet bei großer Ausmitte am Mindestwert Θ = 0,1 "

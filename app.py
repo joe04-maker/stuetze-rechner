@@ -14,9 +14,9 @@ def html(text):
     st.markdown(text, unsafe_allow_html=True)
 
 
-def basis(l0, fck, phi, c, bue, modus, dl, n):
+def basis(l0, fck, phi, c, bue, modus, dl, n, d1, deck=None):
     return dict(l0_m=l0, fck=fck, e0_cm=0.0, phi_ef=phi, c_nom_mm=c, d_bue_mm=float(bue),
-                modus=modus, d_l=int(dl), n_st=int(n))
+                modus=modus, d_l=int(dl), n_st=int(n), d1_mm=d1 or None, deck=deck)
 
 
 with st.sidebar:
@@ -24,13 +24,46 @@ with st.sidebar:
     l0 = st.number_input("Knicklänge l0 (m)", 0.1, 20.0, 2.90, 0.05, format="%.2f")
     fck = st.selectbox("f_ck (N/mm²)", nk.FCK_OPTIONEN, index=nk.FCK_OPTIONEN.index(25))
     phi = st.number_input("Kriechzahl φ_ef (-)", 0.0, 5.0, 0.0, 0.1)
-    c = st.number_input("Nennbetondeckung (mm)", 10.0, 80.0, 20.0, 1.0)
     bue = st.selectbox("Bügel Ø (mm)", [6, 8, 10, 12], index=1)
+    st.markdown("**Betondeckung** (DIN EN 1992-1-1:2025-09, 6.5)")
+    expo_sel = st.selectbox("Expositionsklasse", [nk.MANUELL] + list(nk.EXPO_KLASSEN), index=2,
+                            help="c_nom = c_min + Δc_dev (6.1), c_min = max(c_min,dur; c_min,b; 10 mm) (6.2). "
+                                 "„manuell“: c_nom unten selbst eingeben.")
+    von_hand = expo_sel == nk.MANUELL
+    verfahren = st.selectbox("Verfahren für c_min,dur", nk.VERFAHREN, disabled=von_hand)
+    erc = st.selectbox("Expositionswiderstandsklasse (Zahl hinter XRC/XRDS)", nk.ERC_KLASSEN, index=4,
+                       disabled=von_hand or verfahren != nk.VERFAHREN_ERC,
+                       help="Tabelle 6.3 (XC) / 6.4 (XD, XS). Hängt vom festgelegten Beton ab (EN 206).")
+    skl = st.selectbox("Anforderungsklasse (Anhang P)", nk.S_KLASSEN, index=3,
+                       disabled=von_hand or verfahren != nk.VERFAHREN_P,
+                       help="Tabelle P.2. Empfohlen: S4 bei 50 Jahren (Tabelle P.1).")
+    nd = st.selectbox("Geplante Nutzungsdauer (Jahre)", nk.NUTZUNGSDAUER, disabled=von_hand)
+    dcdev = st.selectbox("Vorhaltemaß Δc_dev (Tabelle 6.7)", list(nk.DC_DEV_FAELLE), disabled=von_hand)
+    c_hand = st.number_input("Nennbetondeckung c_nom (mm), nur bei „manuell“", 10.0, 80.0, 20.0, 1.0,
+                             disabled=not von_hand)
+    deck = None if von_hand else dict(expo=expo_sel, verfahren=verfahren, erc=erc, sklasse=skl, nd=nd,
+                                      dc_dev_fall=dcdev)
+    if deck is None:
+        c = c_hand
+    else:
+        try:
+            dk = nk.betondeckung(d_bue=bue, **deck)
+            c = dk["c_nom"]
+            st.caption(f"c_min,dur = {dk['c_min_dur']:g}, c_min,b = {dk['c_min_b']:g} → c_min = {dk['c_min']:g}; "
+                       f"Δc_dev = {dk['dc_dev']:g} → **c_nom = {c:g} mm**")
+        except ValueError as ex:
+            st.error(str(ex))
+            st.stop()
     modus_txt = st.radio("Bewehrung", ["Vorgeben (Standard: 4 Ø12, je Ecke 1 Stab)",
                                        "Automatisch wählen (kleinste ausreichende)"])
     modus = "fix" if modus_txt.startswith("Vorgeben") else "auto"
     dl = st.selectbox("Längsstab Ø (mm)", nk.STAB_D, index=0, disabled=modus == "auto")
     n = st.selectbox("Anzahl Stäbe (min. 4)", nk.STAB_N, index=0, disabled=modus == "auto")
+    d1 = st.number_input("Achsabstand d1 (mm), 0 = aus c_nom", 0.0, 200.0, 0.0, 1.0, disabled=modus == "auto",
+                         help="0: d1 = c_nom + Bügel-Ø + Stab-Ø/2. Nur im Modus „Vorgeben“. Bei „Automatisch wählen“ "
+                              "wird d1 für den jeweils gewählten Stab immer neu berechnet.")
+    if modus == "auto":
+        d1 = 0.0
 
 top_bew, top_unb, top_vg = st.tabs(["Bewehrte Stütze", "Unbewehrte Stütze", "Vergleich bewehrt ↔ unbewehrt"])
 
@@ -45,7 +78,7 @@ with top_bew:
         e0 = c4.number_input("Lastausmitte e0 (cm)", 0.0, 100.0, 0.0, 0.5)
         if st.button("Berechnen 🚀", type="primary"):
             try:
-                kw = basis(l0, fck, phi, c, bue, modus, dl, n)
+                kw = basis(l0, fck, phi, c, bue, modus, dl, n, d1, deck)
                 kw["e0_cm"] = e0
                 html(nk.ausgabe(nk.berechne(b, h, N_Ed_kN=N, **kw)))
             except ValueError as ex:
@@ -59,12 +92,13 @@ with top_bew:
         text = st.text_area("Varianten", "20 20 645,3\n20 20 528,3 25 2\n25 25 973,5\n25 25 792,9 25 2,5",
                             height=140)
         if st.button("Varianten rechnen 📋"):
-            html(nk.varianten_html(text, basis(l0, fck, phi, c, bue, modus, dl, n)))
+            html(nk.varianten_html(text, basis(l0, fck, phi, c, bue, modus, dl, n, d1, deck)))
 
     with tab3:
         st.markdown("Rechnet die sechs mb-BauStatik-Positionen (4 Ø12, N_Ed aus mb) mit diesem Programm nach.")
         if st.button("Vergleich mit mb-Ausdruck 📊"):
-            html(nk.mb_vergleich_html(l0_m=l0, fck=fck, c_nom_mm=c, d_bue_mm=float(bue), phi_ef=phi))
+            html(nk.mb_vergleich_as_html())
+        html(nk.mb_vergleich_html(l0_m=l0, fck=fck, c_nom_mm=c, d_bue_mm=float(bue), phi_ef=phi))
 
 
 with top_unb:
@@ -95,4 +129,4 @@ with top_unb:
             html(ub.varianten_unbewehrt(ub_text, ub_l0, ub_fck))
 
 with top_vg:
-    vergleich.seite(l0, fck, phi, c, bue, int(dl), int(n))
+    vergleich.seite(l0, fck, phi, c, bue, int(dl), int(n), d1)
