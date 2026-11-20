@@ -49,30 +49,98 @@ def fmt(x, nd=2):
 
 
 # =============================================================================
-# 1b) BETONDECKUNG nach DIN EN 1992-1-1, 4.4.1 mit NA (Betonstahl, Anforderungsklasse S3, 50 Jahre)
-#     c_nom = c_min + Δc_dev
-#     c_min = max( c_min,b ; c_min,dur + Δc_dur,γ − Δc_dur,st − Δc_dur,add ; 10 mm )
-#     c_min,b = Ø des außen liegenden Stabes (Stütze: Bügel-Ø);  Δc_dur,γ = Δc_dur,st = Δc_dur,add = 0
+# 1b) BETONDECKUNG nach DIN EN 1992-1-1:2025-09 (= EN 1992-1-1:2023), Abschnitt 6.5
+#     (6.1)  c_nom = c_min + Δc_dev
+#     (6.2)  c_min = max{ c_min,dur + ΣΔc ; c_min,b ; 10 mm }
+#     c_min,dur: Tabelle 6.3 (Karbonatisierung XC) / Tabelle 6.4 (Chloride XS, XD) in Abhängigkeit von
+#                Expositionswiderstandsklasse (XRC / XRDS) und Nutzungsdauer (50 / 100 Jahre), oder
+#                alternativ Anhang P (Anforderungsklasse S1 ... S6, Tabelle P.2)
+#     c_min,b  : Tabelle 6.5, Einzelstäbe = Stabdurchmesser (bei der Stütze der außen liegende Bügel)
+#     Δc_dev   : Tabelle 6.7 (NDP)
+#     ΣΔc = 0 angesetzt (keine Reduktionen/Erhöhungen); empfohlene Werte, Nationaler Anhang nicht berücksichtigt.
 # =============================================================================
-CMIN_DUR = {"X0": 10, "XC1": 10, "XC2/XC3": 20, "XC4": 25,
-            "XD1/XS1": 30, "XD2/XS2": 35, "XD3/XS3": 40}          # [mm]
-EXPO_KLASSEN = tuple(CMIN_DUR)
+VERFAHREN_ERC = "ERC (Tabelle 6.3 / 6.4)"
+VERFAHREN_P = "Anhang P (Anforderungsklasse S1–S6)"
+VERFAHREN = (VERFAHREN_ERC, VERFAHREN_P)
+EXPO_KLASSEN = ("X0", "XC1", "XC2", "XC3", "XC4", "XD1", "XD2", "XD3", "XS1", "XS2", "XS3")
+ERC_KLASSEN = (0.5, 1, 1.5, 2, 3, 4, 5, 6, 7, 8, 10)        # Zahl hinter XRC bzw. XRDS
+S_KLASSEN = ("S1", "S2", "S3", "S4", "S5", "S6")
+NUTZUNGSDAUER = (50, 100)
 MANUELL = "manuell"
 
+# Tabelle 6.3: Spalten XC1(50,100) XC2(50,100) XC3(50,100) XC4(50,100)
+_T63 = {0.5: (10, 10, 10, 10, 10, 10, 10, 10), 1: (10, 10, 10, 10, 10, 15, 10, 15),
+        2: (10, 15, 10, 15, 15, 25, 15, 25), 3: (10, 15, 15, 20, 20, 30, 20, 30),
+        4: (10, 20, 15, 25, 25, 35, 25, 40), 5: (15, 25, 20, 30, 25, 45, 30, 45),
+        6: (15, 25, 25, 35, 35, 55, 40, 55), 7: (15, 30, 25, 40, 40, 60, 45, 60)}
+_C63 = ("XC1", "XC2", "XC3", "XC4")
+# Tabelle 6.4: Spalten XS1 XS2 XS3 XD1 XD2 XD3, je (50, 100); None = in der Norm "—"
+_T64 = {0.5: (20, 20, 20, 30, 30, 40, 20, 20, 20, 30, 30, 40),
+        1: (20, 25, 25, 35, 35, 45, 20, 25, 25, 35, 35, 45),
+        1.5: (25, 30, 30, 40, 40, 50, 25, 30, 30, 40, 40, 50),
+        2: (25, 30, 35, 45, 45, 55, 25, 30, 35, 45, 45, 55),
+        3: (30, 35, 40, 50, 55, 65, 30, 35, 40, 50, 55, 65),
+        4: (30, 40, 50, 60, 60, 80, 30, 40, 50, 60, 60, 80),
+        5: (35, 45, 60, 70, 70, None, 35, 45, 60, 70, 70, None),
+        6: (40, 50, 65, 80, None, None, 40, 50, 65, 80, None, None),
+        8: (45, 55, 75, None, None, None, 45, 55, 75, None, None, None),
+        10: (50, 65, 80, None, None, None, 50, 65, 80, None, None, None)}
+_C64 = ("XS1", "XS2", "XS3", "XD1", "XD2", "XD3")
+# Tabelle P.2 (unlegierter Betonstahl): Spalten X0, XC1, XC2/XC3, XC4, XD1/XS1, XD2/XS2, XD3/XS3
+_TP2 = {"S1": (10, 10, 10, 15, 20, 25, 30), "S2": (10, 10, 15, 20, 25, 30, 35),
+        "S3": (10, 10, 20, 25, 30, 35, 40), "S4": (10, 15, 25, 30, 35, 40, 45),
+        "S5": (15, 20, 30, 35, 40, 45, 50), "S6": (20, 25, 35, 40, 45, 50, 55)}
+_P_SPALTE = {"X0": 0, "XC1": 1, "XC2": 2, "XC3": 2, "XC4": 3, "XD1": 4, "XS1": 4,
+             "XD2": 5, "XS2": 5, "XD3": 6, "XS3": 6}
+# Tabelle 6.7 (NDP): Vorhaltemaß Δc_dev [mm]
+DC_DEV_FAELLE = {
+    "Fall 1: Toleranzklasse 1 (allgemein)": 10,
+    "Fall 2: Toleranzklasse 2": 5,
+    "Fall 3: Qualitätssicherung mit Messung der Betondeckung": 5,
+    "Fall 4: genaues Messgerät, nichtkonforme Bauteile ausgesondert": 0,
+    "Fall 5: XC1, Korrosionsrisiko unerheblich": 5}
+DC_DEV_STANDARD = "Fall 1: Toleranzklasse 1 (allgemein)"
 
-def betondeckung(expo, d_bue, runden=True):
-    """Nennmaß der Betondeckung [mm] nach EC2/NA. Rückgabe: dict mit allen Zwischenwerten."""
-    if expo not in CMIN_DUR:
+
+def betondeckung(expo, d_bue, verfahren=VERFAHREN_ERC, erc=3, sklasse="S4", nd=50,
+                 dc_dev_fall=DC_DEV_STANDARD):
+    """Nennmaß der Betondeckung [mm] nach EC2:2025-09, 6.5. Rückgabe: dict mit allen Zwischenwerten."""
+    if expo not in EXPO_KLASSEN:
         raise ValueError(f"Unbekannte Expositionsklasse: {expo}")
-    c_min_b = float(d_bue)
-    c_min_dur = float(CMIN_DUR[expo])
-    c_min = max(c_min_b, c_min_dur, 10.0)
-    dc_dev = 10.0 if expo in ("X0", "XC1") else 15.0
-    c_nom = c_min + dc_dev
-    if runden:
-        c_nom = math.ceil(c_nom / 5.0 - 1e-9) * 5.0
-    return dict(expo=expo, c_min_b=c_min_b, c_min_dur=c_min_dur, c_min=c_min,
-                dc_dev=dc_dev, c_nom_roh=c_min + dc_dev, c_nom=c_nom)
+    if nd not in NUTZUNGSDAUER:
+        raise ValueError("Nutzungsdauer: 50 oder 100 Jahre.")
+    if dc_dev_fall not in DC_DEV_FAELLE:
+        raise ValueError("Unbekannter Fall für Δc_dev.")
+    if dc_dev_fall.startswith("Fall 5") and expo != "XC1":
+        raise ValueError("Fall 5 (Δc_dev = 5 mm) gilt nur für XC1.")
+    spalte = 0 if nd == 50 else 1
+    if verfahren == VERFAHREN_ERC:
+        if expo == "X0":
+            raise ValueError("Für X0 enthalten Tabelle 6.3 und 6.4 keine Werte. Anhang P verwenden.")
+        if expo in _C63:
+            tab, namen, kurz = _T63, _C63, "XRC"
+        else:
+            tab, namen, kurz = _T64, _C64, "XRDS"
+        if erc not in tab:
+            raise ValueError(f"{kurz} {erc:g} gibt es für {expo} nicht "
+                             f"(Tabelle {'6.3' if tab is _T63 else '6.4'}: {', '.join(f'{k:g}' for k in tab)}).")
+        c_dur = tab[erc][2 * namen.index(expo) + spalte]
+        if c_dur is None:
+            raise ValueError(f"{expo} / {kurz} {erc:g} / {nd} Jahre: in Tabelle 6.4 nicht zulässig (—).")
+        klasse_txt = f"{kurz} {erc:g}".replace(".", ",")
+    else:
+        if sklasse not in _TP2:
+            raise ValueError("Anforderungsklasse S1 bis S6.")
+        idx = min(int(sklasse[1]) - 1 + (2 if nd == 100 else 0), 5)      # 100 Jahre: Klasse um 2 erhöht (Tab. P.1)
+        eff = f"S{idx + 1}"
+        c_dur = _TP2[eff][_P_SPALTE[expo]]
+        klasse_txt = sklasse if eff == sklasse else f"{sklasse} → {eff} (100 Jahre)"
+    c_min_b = float(d_bue)                                   # Tabelle 6.5: Einzelstab = Stabdurchmesser (Bügel)
+    c_min = max(float(c_dur), c_min_b, 10.0)                 # (6.2) mit ΣΔc = 0
+    dc_dev = float(DC_DEV_FAELLE[dc_dev_fall])
+    return dict(expo=expo, verfahren=verfahren, klasse=klasse_txt, nd=nd, c_min_b=c_min_b,
+                c_min_dur=float(c_dur), c_min=c_min, dc_dev=dc_dev, dc_dev_fall=dc_dev_fall,
+                c_nom=c_min + dc_dev)                        # (6.1)
 
 
 # =============================================================================
@@ -88,6 +156,7 @@ class Stuetze:
     e0: float = 0.0           # planmäßige Ausmitte der Last am Kopf [mm] (Fuß: momentenfrei)
     phi_ef: float = 0.0       # effektive Kriechzahl [-]
     mit_emin: bool = False    # Mindestausmitte max(h/30; 20 mm) zusätzlich ansetzen
+    ausgabe: str = "2025"     # "2025" = DIN EN 1992-1-1:2025-09 (Anhang O.7); "2011" = DIN EN 1992-1-1:2011 + NA (wie mb)
 
     def __post_init__(self):
         if min(self.b, self.h, self.l0) <= 0:
@@ -216,7 +285,13 @@ def nennkruemmung(S, As, N):
     omega = As * S.fyd / (S.Ac * S.fcd)
     n = max(N / (S.Ac * S.fcd), 1e-6)
     lam = S.lam
-    lam_lim = 25.0 if n >= 0.41 else 16.0 / math.sqrt(n)     # NA 5.8.3.1(1)
+    if S.ausgabe == "2011":
+        lam_lim = 25.0 if n >= 0.41 else 16.0 / math.sqrt(n)     # DIN EN 1992-1-1/NA 5.8.3.1(1)
+    else:                                                    # EN 1992-1-1:2023, Gl. (O.12)
+        A = 1.0 / (1.0 + 0.2 * S.phi_ef)
+        B = math.sqrt(1.0 + 2.0 * omega)
+        C = 0.7                                              # C = 1,7 − r_m, r_m = 1,0 (konservativ)
+        lam_lim = 20.0 * A * B * C / math.sqrt(n)
 
     e_i = S.l0 / 400.0                                       # = θ_i · l0/2, θ_i = 1/200
     e_min = max(S.h / 30.0, 20.0)
@@ -231,12 +306,18 @@ def nennkruemmung(S, As, N):
 
     if k.theorie2:
         d = S.h - S.d1                                       # d = h/2 + i_s (2 Lagen)
-        k.inv_r0 = (S.fyd / ES) / (0.45 * d)
+        if S.ausgabe == "2011":
+            k.inv_r0 = (S.fyd / ES) / (0.45 * d)             # 2011: 1/r0 = εyd/(0,45 d)
+        else:
+            k.inv_r0 = 2.0 * (S.fyd / ES) / (S.h - 2.0 * S.d1)   # 2025, Gl. (O.19): 1/r0 = 2 εyd/(d − d')
         n_u, n_bal = 1.0 + omega, 0.4
         k.Kr = min(1.0, max(0.0, (n_u - n) / (n_u - n_bal)))
         beta = max(0.0, 0.35 + S.fck / 200.0 - lam / 150.0)
         k.Kphi = max(1.0, 1.0 + beta * S.phi_ef)
-        k.k1 = 1.0 if lam >= 35.0 else min(1.0, max(0.0, lam / 10.0 - 2.5))
+        if S.ausgabe == "2011":
+            k.k1 = 1.0 if lam >= 35.0 else min(1.0, max(0.0, lam / 10.0 - 2.5))
+        else:
+            k.k1 = 1.0                                       # 2025: kein k1 in O.7.3
         k.inv_r = k.k1 * k.Kr * k.Kphi * k.inv_r0
         k.e2 = k.inv_r * S.l0 ** 2 / 10.0
 
@@ -339,22 +420,24 @@ def _stab_kandidaten(b, c_nom, d_bue, As_min, As_max):
             if a < max(float(d), 20.0):
                 continue
             out.append((As, n, d))
-    return sorted(out)
+    # Praxis: zuerst 4 Stäbe (je Ecke 1 Stab) mit steigendem Ø, erst danach 6, 8, 10, 12 Stäbe
+    return sorted(out, key=lambda t: (t[1], t[2]))
 
 
 def berechne(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN, phi_ef, c_nom_mm, d_bue_mm,
-             mit_emin=False, modus="fix", d_l=12, n_st=4, d1_mm=None, expo=None):
+             mit_emin=False, modus="fix", d_l=12, n_st=4, d1_mm=None, deck=None, ausgabe="2025"):
     """modus 'fix': Bewehrung n_st Ø d_l vorgegeben.  modus 'auto': kleinste ausreichende Stabwahl.
     e0_cm = Lastausmitte am Kopf (Pendelstütze, Fuß momentenfrei).
     d1_mm = Achsabstand vom Rand (nur Modus 'fix'); None/0 = automatisch c_nom + Bügel-Ø + Stab-Ø/2.
             Im Modus 'auto' wird d1 immer aus c_nom und dem gewählten Stab-Ø berechnet.
-    expo = Expositionsklasse: dann wird c_nom nach EC2 berechnet (c_nom_mm wird ignoriert); None: c_nom_mm."""
+    deck = dict(expo=..., verfahren=..., erc=..., sklasse=..., nd=..., dc_dev_fall=...): c_nom nach EC2 6.5 berechnen
+           (c_nom_mm wird ignoriert); None: c_nom_mm von Hand."""
     if N_Ed_kN <= 0:
         raise ValueError("N_Ed muss größer als 0 sein.")
     b, h, l0 = b_cm * 10.0, h_cm * 10.0, l0_m * 1000.0
     N_Ed = N_Ed_kN * 1000.0
     base = dict(b=b, h=h, l0=l0, fck=float(fck), e0=e0_cm * 10.0,
-                phi_ef=phi_ef, mit_emin=mit_emin)
+                phi_ef=phi_ef, mit_emin=mit_emin, ausgabe=ausgabe)
 
     fyd = FYK / GAMMA_S
     As_min = K_ASMIN * N_Ed / fyd              # NA 9.5.2(2), Gl. 9.12DE
@@ -362,8 +445,8 @@ def berechne(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN, phi_ef, c_nom_mm, d_bue_mm,
     hinweise = []
     gefunden = True
     deckung = None
-    if expo:
-        deckung = betondeckung(expo, d_bue_mm)
+    if deck:
+        deckung = betondeckung(d_bue=d_bue_mm, **deck)
         c_nom_mm = deckung["c_nom"]
     d1_fest = float(d1_mm) if (d1_mm and modus == "fix") else 0.0
 
@@ -394,7 +477,7 @@ def berechne(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN, phi_ef, c_nom_mm, d_bue_mm,
             kand = _stab_kandidaten(b, c_nom_mm, d_bue_mm, 0.0, As_max)
             if not kand:
                 raise ValueError("Mit diesen Maßen passt keine Stabwahl in den Querschnitt.")
-            As_k, n_k, d_k = kand[-1]
+            As_k, n_k, d_k = max(kand)
             wahl = (Stuetze(d1=d1_von(d_k), **base), As_k, n_k, d_k)
             hinweise.append("Auch die größte zulässige Bewehrung reicht nicht aus: "
                             "Querschnitt vergrößern oder Betongüte erhöhen.")
@@ -411,6 +494,9 @@ def berechne(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN, phi_ef, c_nom_mm, d_bue_mm,
         hinweise.append(f"A_s,vorh {fmt(As_gew / 100)} cm² > A_s,max {fmt(As_max / 100)} cm².")
     if a_clear < max(float(d_l), 20.0):
         hinweise.append(f"Lichter Stababstand {fmt(a_clear, 0)} mm < {max(d_l, 20)} mm.")
+    if deckung and deckung["c_nom"] + d_bue_mm < d_l:
+        hinweise.append(f"Betondeckung der Längsstäbe c_nom + Ø_Bügel = {fmt(deckung['c_nom'] + d_bue_mm, 0)} mm < Stab-Ø {d_l} mm "
+                        f"(c_min,b, Tabelle 6.5).")
     if d_bue_mm < max(6.0, d_l / 4.0):
         hinweise.append(f"Bügel-Ø {fmt(d_bue_mm, 0)} mm < Mindestwert {fmt(max(6.0, d_l / 4.0), 1)} mm.")
 
@@ -575,15 +661,16 @@ def ausgabe(E):
         ("H", "Eingang"),
         ("Querschnitt b × h", f"{fmt(S.b / 10, 0)} × {fmt(S.h / 10, 0)} cm, C{S.fck:.0f}/B500B, l<sub>0</sub> = {fmt(S.l0 / 1000)} m"),
         ("Bewehrung", f"{E.n_st} Ø{E.d_l}" + (" (je Ecke 1 Stab)" if E.n_st == 4 else "")
-         + f" → A<sub>s</sub> = {fmt(E.As_gew / 100, 3)} cm² (" + ("vorgegeben" if E.modus == "fix" else "automatisch gewählt") + ")"),
+         + f" → A<sub>s</sub> = {fmt(E.As_gew / 100, 3)} cm² (" + ("vorgegeben" if E.modus == "fix" else "automatisch gewählt: zuerst 4 Stäbe, Ø steigend") + ")"),
         ("N<sub>Ed</sub>", f"{fmt(N_Ed / 1000, 2)} kN"),
         ("Lastausmitte e<sub>0</sub> (am Kopf)", f"{fmt(S.e0 / 10, 2)} cm"),
-    ] + ([("H", f"Betondeckung nach EC2 (Expositionsklasse {E.deckung['expo']})"),
-        ("c<sub>min,b</sub> = Bügel-Ø", f"{fmt(E.deckung['c_min_b'], 0)} mm"),
-        ("c<sub>min,dur</sub>", f"{fmt(E.deckung['c_min_dur'], 0)} mm"),
-        ("c<sub>min</sub> = max(c<sub>min,b</sub>; c<sub>min,dur</sub>; 10 mm)", f"{fmt(E.deckung['c_min'], 0)} mm"),
-        ("Δc<sub>dev</sub>", f"{fmt(E.deckung['dc_dev'], 0)} mm"),
-        ("c<sub>nom</sub> = c<sub>min</sub> + Δc<sub>dev</sub> (auf 5 mm aufgerundet)", f"<b>{fmt(E.deckung['c_nom'], 0)} mm</b>")]
+    ] + ([("H", f"Betondeckung nach EC2 (DIN EN 1992-1-1:2025-09, 6.5), Expositionsklasse {E.deckung['expo']}"),
+        ("Verfahren / Klasse / Nutzungsdauer", f"{E.deckung['verfahren']}: {E.deckung['klasse']}, {E.deckung['nd']} Jahre"),
+        ("c<sub>min,dur</sub> (Tabelle 6.3 / 6.4 bzw. P.2)", f"{fmt(E.deckung['c_min_dur'], 0)} mm"),
+        ("c<sub>min,b</sub> = Stabdurchmesser (Bügel)", f"{fmt(E.deckung['c_min_b'], 0)} mm"),
+        ("c<sub>min</sub> = max(c<sub>min,dur</sub>; c<sub>min,b</sub>; 10 mm)  (6.2)", f"{fmt(E.deckung['c_min'], 0)} mm"),
+        (f"Δc<sub>dev</sub> (Tabelle 6.7, {E.deckung['dc_dev_fall'].split(':')[0]})", f"{fmt(E.deckung['dc_dev'], 0)} mm"),
+        ("c<sub>nom</sub> = c<sub>min</sub> + Δc<sub>dev</sub>  (6.1)", f"<b>{fmt(E.deckung['c_nom'], 0)} mm</b>")]
         if E.deckung else [("H", "Achsabstand")]) + [
         ("Achsabstand d<sub>1</sub> = c<sub>nom</sub> + Ø<sub>Bügel</sub> + Ø<sub>Längsstab</sub>/2" if not E.d1_manuell
          else "Achsabstand d<sub>1</sub> (von Hand vorgegeben)", f"{fmt(S.d1, 1)} mm"),
@@ -594,7 +681,7 @@ def ausgabe(E):
         ("H", "Schlankheit"),
         ("i / λ", f"{fmt(S.i, 2)} mm / {fmt(k.lam, 2)}"),
         ("n = N<sub>Ed</sub>/(A<sub>c</sub>·f<sub>cd</sub>)", fmt(k.n, 4)),
-        ("λ<sub>lim</sub> (NA 5.8.3.1)", fmt(k.lam_lim, 2) + (" → Theorie II. Ordnung nötig" if k.theorie2 else " → Theorie I. Ordnung genügt")),
+        ("λ<sub>lim</sub> (" + ("NA 5.8.3.1" if S.ausgabe == "2011" else "EN 1992-1-1:2023, Gl. O.12") + ")", fmt(k.lam_lim, 2) + (" → Theorie II. Ordnung nötig" if k.theorie2 else " → Theorie I. Ordnung genügt")),
         ("H", "Nennkrümmung (wie mb: Imperfektion, Θ<sub>i</sub> = 1/200, c = 10)"),
         ("e<sub>i</sub> = l<sub>0</sub>/400", f"{fmt(k.e_i / 10, 2)} cm"),
     ]
@@ -607,7 +694,7 @@ def ausgabe(E):
         zeilen += [
             ("K<sub>r</sub>", fmt(k.Kr, 3)),
             ("k<sub>1</sub> / K<sub>φ</sub>", f"{fmt(k.k1, 3)} / {fmt(k.Kphi, 3)}"),
-            ("1/r<sub>0</sub> = ε<sub>yd</sub>/(0,45·d)", f"{fmt(k.inv_r0 * 1000, 6)} 1/m"),
+            ("1/r<sub>0</sub> = " + ("ε<sub>yd</sub>/(0,45·d)" if S.ausgabe == "2011" else "2·ε<sub>yd</sub>/(d − d′), Gl. O.19"), f"{fmt(k.inv_r0 * 1000, 6)} 1/m"),
             ("1/r = K<sub>r</sub>·K<sub>φ</sub>·(1/r<sub>0</sub>)  (so weist mb aus)", f"{fmt(k.Kr * k.Kphi * k.inv_r0 * 1000, 6)} 1/m"),
             ("e<sub>2</sub> = k<sub>1</sub>·(1/r)·l<sub>0</sub>²/10", f"{fmt(k.e2 / 10, 3)} cm"),
         ]
@@ -732,7 +819,7 @@ def mb_vergleich_html(l0_m=2.90, fck=25, c_nom_mm=20.0, d_bue_mm=8.0, phi_ef=0.0
     zeilen_html = []
     for name, h, e0, N, Kr, ir, e2, Mz, My in MB_DATEN:
         E = berechne(h, h, N_Ed_kN=N, l0_m=l0_m, fck=fck, e0_cm=e0, phi_ef=phi_ef,
-                     c_nom_mm=c_nom_mm, d_bue_mm=d_bue_mm, modus="fix", d_l=12, n_st=4)
+                     c_nom_mm=c_nom_mm, d_bue_mm=d_bue_mm, modus="fix", d_l=12, n_st=4, ausgabe="2011")
         k = E.kru
         My_h = E.N_Ed * (k.e_i + k.e2) / 1e6
         Mz_h = E.Med_Ned / 1e6
@@ -754,6 +841,54 @@ def mb_vergleich_html(l0_m=2.90, fck=25, c_nom_mm=20.0, d_bue_mm=8.0, phi_ef=0.0
         farbe="#ffc107")
 
 
+# mb-Ausdruck "Test1911" (Querschnitt 25x25, C25/30, XC1, l0 = 2,90 m, N_Ed = 1299 kN, e0 = 0):
+# mb bestimmt die erforderliche Bewehrung. Betondeckung: c_nom = 20 mm, cv = 36 mm, d' = 50 mm.
+MB_AS = dict(N=1299.0, h=25.0, fck=25, l0=2.90, d1=50.0, lam=40.2, e_i=0.73, Kr=0.15, k1=1.00,
+             inv_r=3.66e-3, e2=0.31, x=1.40, M0=9.42, M2=3.99, MEd=13.41, As=13.39, As1=3.35)
+
+
+def mb_vergleich_as_html():
+    """Vergleich 'erforderliche Bewehrung' mit dem mb-Ausdruck Test1911 (d' = 50 mm)."""
+    d = MB_AS
+    S = Stuetze(b=d["h"] * 10, h=d["h"] * 10, l0=d["l0"] * 1000, fck=float(d["fck"]), d1=d["d1"], ausgabe="2011")
+    N = d["N"] * 1000.0
+    As = as_erforderlich(S, N)
+    k = nennkruemmung(S, As, N)
+    xi = k.xi_krit
+    M0 = N * k.e_kopf / 1e6
+    M2 = N * k.e2 * math.sin(math.pi * xi) / 1e6
+    MEd = k.e_tot * N / 1e6
+    zeilen_def = [
+        ("N<sub>Ed</sub> [kN]", d["N"], d["N"], 2),
+        ("Achsabstand d' [mm]", d["d1"], S.d1, 1),
+        ("Schlankheit λ", d["lam"], k.lam, 1),
+        ("e<sub>i</sub> [cm]", d["e_i"], k.e_i / 10, 2),
+        ("K<sub>r</sub>", d["Kr"], k.Kr, 2),
+        ("k<sub>1</sub>", d["k1"], k.k1, 2),
+        ("1/r [10<sup>-3</sup>/m]", d["inv_r"] * 1e3, k.Kr * k.Kphi * k.inv_r0 * 1e6, 2),
+        ("e<sub>2</sub> [cm]", d["e2"], k.e2 / 10, 2),
+        ("kritischer Schnitt x [m] (mb: 0,1-m-Raster)", d["x"], xi * S.l0 / 1000.0, 2),
+        ("M<sub>0Ed</sub> [kNm]", d["M0"], M0, 2),
+        ("M<sub>2</sub> [kNm]", d["M2"], M2, 2),
+        ("M<sub>Ed</sub> [kNm]", d["MEd"], MEd, 2),
+        ("A<sub>s,erf</sub> gesamt [cm²]", d["As"], As / 100.0, 2),
+        ("A<sub>s1</sub> je Ecke [cm²]", d["As1"], As / 400.0, 2),
+    ]
+    zeilen = []
+    for name, mbv, hier, nd in zeilen_def:
+        abw = "–" if mbv == 0 else f"{(hier / mbv - 1) * 100:+.2f} %".replace(".", ",")
+        zeilen.append([name, fmt(mbv, nd), fmt(hier, nd), abw])
+    return _karte(
+        '<h3 style="margin-top:0;">📊 Vergleich: erforderliche Bewehrung (mb-Ausdruck „Test1911“)</h3>'
+        '<div style="font-size:0.9em;margin-bottom:6px;">25×25 cm, C25/30, XC1, l<sub>0</sub> = 2,90 m, N<sub>Ed</sub> = 1299 kN, e<sub>0</sub> = 0. '
+        'mb setzt hier das Verlegemaß c<sub>v</sub> = 36 mm und damit d\' = 50 mm (= 36 + 8 + 12/2). '
+        'Mit diesem d\' rechnet dieses Programm.</div>'
+        + _html_tabelle(["Größe", "mb", "hier", "Abweichung"], zeilen, links=(0,))
+        + '<p style="font-size:0.85em;color:#555;">mb rundet K<sub>r</sub>, e<sub>2</sub> und die Momente auf 2 Stellen und wertet x im '
+          '0,1-m-Raster aus (1,40 statt 1,45 m). Die Abweichungen sind rundungsbedingt.</p>',
+        farbe="#ffc107")
+
+
 # =============================================================================
 # 9) OBERFLÄCHE (Google Colab)
 # =============================================================================
@@ -771,6 +906,16 @@ if __name__ == "__main__":
     phi_w = widgets.FloatText(value=0.0, description="Kriechzahl φ_ef (-):", style=sty, layout=lay)
     expo_w = widgets.Dropdown(options=[MANUELL] + list(EXPO_KLASSEN), value="XC1",
                               description="Expositionsklasse:", style=sty, layout=lay)
+    verf_w = widgets.Dropdown(options=list(VERFAHREN), value=VERFAHREN_ERC,
+                              description="Verfahren (cmin,dur):", style=sty, layout=lay)
+    erc_w = widgets.Dropdown(options=list(ERC_KLASSEN), value=3,
+                             description="XRC / XRDS (Tab. 6.3/6.4):", style=sty, layout=lay)
+    skl_w = widgets.Dropdown(options=list(S_KLASSEN), value="S4",
+                             description="Anforderungskl. (Anhang P):", style=sty, layout=lay)
+    nd_w = widgets.Dropdown(options=list(NUTZUNGSDAUER), value=50,
+                            description="Nutzungsdauer (Jahre):", style=sty, layout=lay)
+    dcdev_w = widgets.Dropdown(options=list(DC_DEV_FAELLE), value=DC_DEV_STANDARD,
+                               description="Vorhaltemaß Δcdev (Tab. 6.7):", style=sty, layout=widgets.Layout(width="760px"))
     c_w = widgets.FloatText(value=20.0, description="Nennbetondeckung (mm, nur bei manuell):", style=sty, layout=lay)
     bue_w = widgets.Dropdown(options=[6, 8, 10, 12], value=8,
                              description="Bügel Ø (mm):", style=sty, layout=lay)
@@ -805,14 +950,20 @@ if __name__ == "__main__":
 
     def _c_nom():
         """c_nom [mm]: nach EC2 aus der Expositionsklasse oder von Hand."""
+        d = _deck()
+        return c_w.value if d is None else betondeckung(d_bue=float(bue_w.value), **d)["c_nom"]
+
+    def _deck():
+        """Parameter der EC2-Betondeckung (None: c_nom von Hand)."""
         if expo_w.value == MANUELL:
-            return c_w.value
-        return betondeckung(expo_w.value, float(bue_w.value))["c_nom"]
+            return None
+        return dict(expo=expo_w.value, verfahren=verf_w.value, erc=erc_w.value, sklasse=skl_w.value,
+                    nd=nd_w.value, dc_dev_fall=dcdev_w.value)
 
     def _basis():
         return dict(l0_m=l0_w.value, fck=fck_w.value, e0_cm=e0_w.value,
                     phi_ef=phi_w.value, c_nom_mm=_c_nom(), d_bue_mm=float(bue_w.value),
-                    expo=None if expo_w.value == MANUELL else expo_w.value,
+                    deck=_deck(),
                     modus=modus_w.value, d_l=int(dl_w.value),
                     n_st=int(n_w.value), d1_mm=d1_w.value or None)
 
@@ -833,12 +984,16 @@ if __name__ == "__main__":
     def on_var(_):
         with var_out:
             var_out.clear_output()
-            display(HTML(varianten_html(var_w.value, _basis())))
+            try:
+                display(HTML(varianten_html(var_w.value, _basis())))
+            except Exception as ex:
+                _fehler(f"{type(ex).__name__}: {ex}")
 
     def on_mb(_):
         with mb_out:
             mb_out.clear_output()
             try:
+                display(HTML(mb_vergleich_as_html()))
                 display(HTML(mb_vergleich_html(l0_m=l0_w.value, fck=fck_w.value, c_nom_mm=_c_nom(),
                                                d_bue_mm=float(bue_w.value), phi_ef=phi_w.value)))
             except Exception as ex:
@@ -847,5 +1002,5 @@ if __name__ == "__main__":
     run_btn.on_click(on_run)
     var_btn.on_click(on_var)
     mb_btn.on_click(on_mb)
-    display(b_w, h_w, l0_w, fck_w, e0_w, N_w, phi_w, expo_w, c_w, bue_w, modus_w, dl_w, n_w, d1_w,
+    display(b_w, h_w, l0_w, fck_w, e0_w, N_w, phi_w, expo_w, verf_w, erc_w, skl_w, nd_w, dcdev_w, c_w, bue_w, modus_w, dl_w, n_w, d1_w,
             run_btn, out_area, var_info, var_w, var_btn, var_out, mb_btn, mb_out)
