@@ -26,7 +26,7 @@ def rechne_unbewehrt(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN):
     ausn = N_Ed_kN / N_Rd_kN if N_Rd_kN > 0 else float("inf")
     return dict(b=b_cm, h=h_cm, l0=l0_m, fck=fck, e0=e0_cm, N_Ed=N_Ed_kN, i=i_cm, lam=lam,
                 etot=etot_cm, theta_roh=theta_roh, theta=theta, fcd_pl=fcd_pl,
-                N_Rd_MN=N_Rd_MN, N_Rd=N_Rd_kN, ausn=ausn, ok=N_Ed_kN <= N_Rd_kN,
+                N_Rd_MN=N_Rd_MN, N_Rd=N_Rd_kN, ausn=ausn, ok=(N_Rd_kN > 0 and round(N_Ed_kN / N_Rd_kN * 100.0, 2) <= 100.01),
                 lam_ok=lam <= LAM_LIM)
 
 

@@ -35,7 +35,7 @@ EPS_C2 = 0.002        # Parabel-Rechteck-Diagramm (fck <= 50)
 EPS_CU = 0.0035
 N_STREIFEN = 200      # Betonstreifen für die Integration
 K_ASMIN = 0.15        # A_s,min = 0,15·N_Ed/f_yd   (NA 9.5.2(2), Gl. 9.12DE)
-TOL_GRENZE = 0.002    # Überschreitung bis 0,2 % gilt als "praktisch ausgelastet" (Rechen-/Rundungsgenauigkeit)
+AUSN_MAX = 100.01     # Nachweis erfüllt, solange die auf 2 Stellen gerundete Ausnutzung <= 100,01 % ist
 STAB_D = (12, 14, 16, 20, 25, 28)       # Ø_min = 12 mm (NA)
 STAB_N = (4, 6, 8, 10, 12)              # gerade Anzahl, mind. 4 (je Ecke 1 Stab)
 FCK_OPTIONEN = (12, 16, 20, 25, 30, 35, 40, 45, 50)
@@ -46,6 +46,33 @@ def fmt(x, nd=2):
     if x is None or (isinstance(x, float) and (math.isinf(x) or math.isnan(x))):
         return "–"
     return f"{x:.{nd}f}".replace(".", ",")
+
+
+# =============================================================================
+# 1b) BETONDECKUNG nach DIN EN 1992-1-1, 4.4.1 mit NA (Betonstahl, Anforderungsklasse S3, 50 Jahre)
+#     c_nom = c_min + Δc_dev
+#     c_min = max( c_min,b ; c_min,dur + Δc_dur,γ − Δc_dur,st − Δc_dur,add ; 10 mm )
+#     c_min,b = Ø des außen liegenden Stabes (Stütze: Bügel-Ø);  Δc_dur,γ = Δc_dur,st = Δc_dur,add = 0
+# =============================================================================
+CMIN_DUR = {"X0": 10, "XC1": 10, "XC2/XC3": 20, "XC4": 25,
+            "XD1/XS1": 30, "XD2/XS2": 35, "XD3/XS3": 40}          # [mm]
+EXPO_KLASSEN = tuple(CMIN_DUR)
+MANUELL = "manuell"
+
+
+def betondeckung(expo, d_bue, runden=True):
+    """Nennmaß der Betondeckung [mm] nach EC2/NA. Rückgabe: dict mit allen Zwischenwerten."""
+    if expo not in CMIN_DUR:
+        raise ValueError(f"Unbekannte Expositionsklasse: {expo}")
+    c_min_b = float(d_bue)
+    c_min_dur = float(CMIN_DUR[expo])
+    c_min = max(c_min_b, c_min_dur, 10.0)
+    dc_dev = 10.0 if expo in ("X0", "XC1") else 15.0
+    c_nom = c_min + dc_dev
+    if runden:
+        c_nom = math.ceil(c_nom / 5.0 - 1e-9) * 5.0
+    return dict(expo=expo, c_min_b=c_min_b, c_min_dur=c_min_dur, c_min=c_min,
+                dc_dev=dc_dev, c_nom_roh=c_min + dc_dev, c_nom=c_nom)
 
 
 # =============================================================================
@@ -296,6 +323,8 @@ class Ergebnis:
     hinweise: list
     modus: str
     gefunden: bool = True     # False: keine Bewehrung (<= 4 % Ac) reicht (Auto-Modus)
+    deckung: object = None    # dict aus betondeckung() oder None (c_nom von Hand)
+    d1_manuell: bool = False  # d1 wurde von Hand vorgegeben (nur Modus 'fix')
 
 
 def _stab_kandidaten(b, c_nom, d_bue, As_min, As_max):
@@ -314,9 +343,12 @@ def _stab_kandidaten(b, c_nom, d_bue, As_min, As_max):
 
 
 def berechne(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN, phi_ef, c_nom_mm, d_bue_mm,
-             mit_emin=False, modus="fix", d_l=12, n_st=4):
+             mit_emin=False, modus="fix", d_l=12, n_st=4, d1_mm=None, expo=None):
     """modus 'fix': Bewehrung n_st Ø d_l vorgegeben.  modus 'auto': kleinste ausreichende Stabwahl.
-    e0_cm = Lastausmitte am Kopf (Pendelstütze, Fuß momentenfrei)."""
+    e0_cm = Lastausmitte am Kopf (Pendelstütze, Fuß momentenfrei).
+    d1_mm = Achsabstand vom Rand (nur Modus 'fix'); None/0 = automatisch c_nom + Bügel-Ø + Stab-Ø/2.
+            Im Modus 'auto' wird d1 immer aus c_nom und dem gewählten Stab-Ø berechnet.
+    expo = Expositionsklasse: dann wird c_nom nach EC2 berechnet (c_nom_mm wird ignoriert); None: c_nom_mm."""
     if N_Ed_kN <= 0:
         raise ValueError("N_Ed muss größer als 0 sein.")
     b, h, l0 = b_cm * 10.0, h_cm * 10.0, l0_m * 1000.0
@@ -329,20 +361,28 @@ def berechne(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN, phi_ef, c_nom_mm, d_bue_mm,
     As_max = 0.04 * b * h
     hinweise = []
     gefunden = True
+    deckung = None
+    if expo:
+        deckung = betondeckung(expo, d_bue_mm)
+        c_nom_mm = deckung["c_nom"]
+    d1_fest = float(d1_mm) if (d1_mm and modus == "fix") else 0.0
+
+    def d1_von(d_stab):
+        return d1_fest if d1_fest else c_nom_mm + d_bue_mm + d_stab / 2.0
 
     if modus == "fix":
         if d_l < 12:
             raise ValueError("Längsstab-Ø muss mindestens 12 mm betragen (NA).")
         if n_st < 4 or n_st % 2:
             raise ValueError("Stabanzahl: gerade und mindestens 4 (je Ecke 1 Stab).")
-        S = Stuetze(d1=c_nom_mm + d_bue_mm + d_l / 2.0, **base)
+        S = Stuetze(d1=d1_von(d_l), **base)
         As_gew = n_st * math.pi * d_l ** 2 / 4.0
         n_seite = n_st // 2
         a_clear = (b - 2.0 * (c_nom_mm + d_bue_mm) - n_seite * d_l) / (n_seite - 1)
     elif modus == "auto":
         wahl = None
         for As_k, n_k, d_k in _stab_kandidaten(b, c_nom_mm, d_bue_mm, As_min, As_max):
-            d1_k = c_nom_mm + d_bue_mm + d_k / 2.0
+            d1_k = d1_von(d_k)
             if d1_k >= h / 2.0:
                 continue
             S_k = Stuetze(d1=d1_k, **base)
@@ -355,7 +395,7 @@ def berechne(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN, phi_ef, c_nom_mm, d_bue_mm,
             if not kand:
                 raise ValueError("Mit diesen Maßen passt keine Stabwahl in den Querschnitt.")
             As_k, n_k, d_k = kand[-1]
-            wahl = (Stuetze(d1=c_nom_mm + d_bue_mm + d_k / 2.0, **base), As_k, n_k, d_k)
+            wahl = (Stuetze(d1=d1_von(d_k), **base), As_k, n_k, d_k)
             hinweise.append("Auch die größte zulässige Bewehrung reicht nicht aus: "
                             "Querschnitt vergrößern oder Betongüte erhöhen.")
         S, As_gew, n_st, d_l = wahl
@@ -386,9 +426,9 @@ def berechne(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN, phi_ef, c_nom_mm, d_bue_mm,
     return Ergebnis(S=S, N_Ed=N_Ed, n_st=n_st, d_l=d_l, d_bue=d_bue_mm, As_gew=As_gew,
                     As_min=As_min, As_max=As_max, As_erf=as_erforderlich(S, N_Ed),
                     N_Rd=N_Rd, N_Rd_biegung=N_bieg, N_Rd_asmin=N_asmin, massgebend=massg,
-                    ok_N=N_Ed <= N_Rd * (1.0 + 1e-9), Mrd_Ned=Mrd, Med_Ned=Med, kru=kru,
+                    ok_N=(N_Rd > 0 and round(N_Ed / N_Rd * 100.0, 2) <= AUSN_MAX), Mrd_Ned=Mrd, Med_Ned=Med, kru=kru,
                     N0=N0, a_clear=a_clear, hinweise=hinweise, modus=modus,
-                    gefunden=gefunden)
+                    gefunden=gefunden, deckung=deckung, d1_manuell=bool(d1_fest))
 
 
 # =============================================================================
@@ -432,7 +472,7 @@ def _html_tabelle(kopf, zeilen, gruppen=None, links=(0,), status=None, fett_zeil
     zeilen     Liste von Zellenlisten; ein String statt Liste = Fehlerzeile über alle Spalten
     gruppen    optional [(Text, Spaltenanzahl), ...] als obere Überschriftenzeile
     links      Spaltenindizes mit linksbündigem Text (alle anderen rechtsbündig)
-    status     Index einer Statusspalte (✅ grün, ≈ gelb, sonst rot), zentriert
+    status     Index einer Statusspalte (✅ grün, sonst rot), zentriert
     fett_zeile Index einer hervorgehobenen Zeile
     """
     n = len(kopf)
@@ -459,7 +499,6 @@ def _html_tabelle(kopf, zeilen, gruppen=None, links=(0,), status=None, fett_zeil
                 stil += "font-weight:700;background:#fff3cd;"
             if i == status:
                 farbe = ("background:#d4edda;color:#155724;" if "✅" in c else
-                         "background:#fff3cd;color:#856404;" if "≈" in c else
                          "background:#f8d7da;color:#721c24;")
                 stil = f"{_TD}{farbe}text-align:center;font-weight:700;"
             html += f'<td style="{stil}">{c}</td>'
@@ -517,13 +556,6 @@ def ausgabe(E):
                                f"(Ausnutzung {fmt(ausn_N * 100, 2)} %, maßgebend: {E.massgebend})")
     elif E.ok_N:
         status = _box("gelb", f"⚠️ Tragfähigkeit erfüllt ({fmt(ausn_N * 100, 2)} %), aber Hinweise beachten.")
-    elif ausn_N <= 1.0 + TOL_GRENZE:
-        status = _box("gelb", f"⚠️ Praktisch voll ausgelastet: N<sub>Ed</sub> = {fmt(N_Ed / 1000, 2)} kN &gt; "
-                              f"N<sub>Rd,max</sub> = {fmt(E.N_Rd / 1000, 2)} kN, rechnerisch um "
-                              f"{fmt((ausn_N - 1.0) * 100, 2)} % überschritten (Ausnutzung {fmt(ausn_N * 100, 2)} %, "
-                              f"maßgebend: {E.massgebend}).<br>Das liegt innerhalb der Rechen- und "
-                              f"Rundungsgenauigkeit (± {fmt(TOL_GRENZE * 100, 1)} %), streng genommen ist der Nachweis "
-                              f"aber nicht erfüllt. Last etwas senken oder Bewehrung erhöhen.")
     else:
         status = _box("rot", f"⚠️ Nachweis NICHT erfüllt: N<sub>Ed</sub> = {fmt(N_Ed / 1000, 2)} kN &gt; "
                              f"N<sub>Rd,max</sub> = {fmt(E.N_Rd / 1000, 2)} kN "
@@ -544,9 +576,18 @@ def ausgabe(E):
         ("Querschnitt b × h", f"{fmt(S.b / 10, 0)} × {fmt(S.h / 10, 0)} cm, C{S.fck:.0f}/B500B, l<sub>0</sub> = {fmt(S.l0 / 1000)} m"),
         ("Bewehrung", f"{E.n_st} Ø{E.d_l}" + (" (je Ecke 1 Stab)" if E.n_st == 4 else "")
          + f" → A<sub>s</sub> = {fmt(E.As_gew / 100, 3)} cm² (" + ("vorgegeben" if E.modus == "fix" else "automatisch gewählt") + ")"),
-        ("Achsabstand d<sub>1</sub> / Nutzhöhe d", f"{fmt(S.d1, 1)} mm / {fmt(S.h - S.d1, 1)} mm"),
         ("N<sub>Ed</sub>", f"{fmt(N_Ed / 1000, 2)} kN"),
         ("Lastausmitte e<sub>0</sub> (am Kopf)", f"{fmt(S.e0 / 10, 2)} cm"),
+    ] + ([("H", f"Betondeckung nach EC2 (Expositionsklasse {E.deckung['expo']})"),
+        ("c<sub>min,b</sub> = Bügel-Ø", f"{fmt(E.deckung['c_min_b'], 0)} mm"),
+        ("c<sub>min,dur</sub>", f"{fmt(E.deckung['c_min_dur'], 0)} mm"),
+        ("c<sub>min</sub> = max(c<sub>min,b</sub>; c<sub>min,dur</sub>; 10 mm)", f"{fmt(E.deckung['c_min'], 0)} mm"),
+        ("Δc<sub>dev</sub>", f"{fmt(E.deckung['dc_dev'], 0)} mm"),
+        ("c<sub>nom</sub> = c<sub>min</sub> + Δc<sub>dev</sub> (auf 5 mm aufgerundet)", f"<b>{fmt(E.deckung['c_nom'], 0)} mm</b>")]
+        if E.deckung else [("H", "Achsabstand")]) + [
+        ("Achsabstand d<sub>1</sub> = c<sub>nom</sub> + Ø<sub>Bügel</sub> + Ø<sub>Längsstab</sub>/2" if not E.d1_manuell
+         else "Achsabstand d<sub>1</sub> (von Hand vorgegeben)", f"{fmt(S.d1, 1)} mm"),
+        ("Nutzhöhe d = h − d<sub>1</sub>", f"{fmt(S.h - S.d1, 1)} mm"),
         ("H", "Baustoffe"),
         ("f<sub>cd</sub> / f<sub>yd</sub>", f"{fmt(S.fcd, 3)} / {fmt(S.fyd, 3)} N/mm²"),
         ("ω = A<sub>s</sub>·f<sub>yd</sub>/(A<sub>c</sub>·f<sub>cd</sub>)", fmt(k.omega, 4)),
@@ -645,14 +686,13 @@ def varianten_html(text, basis):
             E = berechne(b, h, N_Ed_kN=N_Ed, **kw)
             ausn = E.N_Ed / E.N_Rd if E.N_Rd > 0 else float("inf")
             ok = E.ok_N and E.gefunden
-            grenz = (not E.ok_N) and E.gefunden and ausn <= 1.0 + TOL_GRENZE
             zellen = [f"{fmt(b, 0)}×{fmt(h, 0)}", f"{E.S.fck:.0f}", fmt(E.S.e0 / 10, 1),
                       fmt(E.kru.lam, 1), f"{E.n_st} Ø{E.d_l}", fmt(E.As_gew / 100, 3),
                       fmt(N_Ed, 2), fmt(E.N_Rd / 1000, 2),
                       f"{fmt(ausn * 100, 2)} %",
                       "Biegung" if E.N_Rd_biegung <= E.N_Rd_asmin else "A<sub>s,min</sub>",
                       "&gt; max" if E.As_erf is None else fmt(E.As_erf / 100, 3),
-                      "✅ erfüllt" if ok else ("≈ Grenze" if grenz else "⚠️ nicht erfüllt")]
+                      "✅ erfüllt" if ok else "⚠️ nicht erfüllt"]
         except Exception as ex:                      # Eingabefehler in einer Zeile stoppen nicht alles
             zellen = f"Zeile {nr}: „{zeile}“ → ❌ {ex}"
         zeilen_html.append(zellen)
@@ -662,7 +702,7 @@ def varianten_html(text, basis):
         '<h3 style="margin-top:0;">📋 Varianten</h3>'
         + _html_tabelle(kopf, zeilen_html, links=(0, 4, 9), status=11)
         + '<p style="font-size:0.85em;color:#555;">Alle weiteren Eingaben (Knicklänge, Deckung, Bügel, Bewehrung …) '
-          'kommen aus den Feldern oben. „≈ Grenze“: Überschreitung bis 0,2 % (Rechen-/Rundungsgenauigkeit).</p>',
+          'kommen aus den Feldern oben. Erfüllt, solange die Ausnutzung höchstens 100,01 % beträgt.</p>',
         farbe="#17a2b8")
 
 
@@ -729,7 +769,9 @@ if __name__ == "__main__":
     e0_w = widgets.FloatText(value=0.0, description="Lastausmitte e0 (cm):", style=sty, layout=lay)
     N_w = widgets.FloatText(value=645.3, description="Normalkraft N_Ed (kN):", style=sty, layout=lay)
     phi_w = widgets.FloatText(value=0.0, description="Kriechzahl φ_ef (-):", style=sty, layout=lay)
-    c_w = widgets.FloatText(value=20.0, description="Nennbetondeckung (mm):", style=sty, layout=lay)
+    expo_w = widgets.Dropdown(options=[MANUELL] + list(EXPO_KLASSEN), value="XC1",
+                              description="Expositionsklasse:", style=sty, layout=lay)
+    c_w = widgets.FloatText(value=20.0, description="Nennbetondeckung (mm, nur bei manuell):", style=sty, layout=lay)
     bue_w = widgets.Dropdown(options=[6, 8, 10, 12], value=8,
                              description="Bügel Ø (mm):", style=sty, layout=lay)
     modus_w = widgets.RadioButtons(
@@ -740,6 +782,8 @@ if __name__ == "__main__":
                             description="Längsstab Ø (mm):", style=sty, layout=lay)
     n_w = widgets.Dropdown(options=list(STAB_N), value=4,
                            description="Anzahl Stäbe (min. 4):", style=sty, layout=lay)
+    d1_w = widgets.FloatText(value=0.0, description="Achsabstand d1 (mm, 0 = aus c_nom; nur Modus Vorgeben):",
+                             style=sty, layout=lay)
 
     run_btn = widgets.Button(description="Berechnen 🚀", button_style="success")
     out_area = widgets.Output()
@@ -759,11 +803,18 @@ if __name__ == "__main__":
     mb_btn = widgets.Button(description="Vergleich mit mb-Ausdruck 📊", button_style="warning")
     mb_out = widgets.Output()
 
+    def _c_nom():
+        """c_nom [mm]: nach EC2 aus der Expositionsklasse oder von Hand."""
+        if expo_w.value == MANUELL:
+            return c_w.value
+        return betondeckung(expo_w.value, float(bue_w.value))["c_nom"]
+
     def _basis():
         return dict(l0_m=l0_w.value, fck=fck_w.value, e0_cm=e0_w.value,
-                    phi_ef=phi_w.value, c_nom_mm=c_w.value, d_bue_mm=float(bue_w.value),
+                    phi_ef=phi_w.value, c_nom_mm=_c_nom(), d_bue_mm=float(bue_w.value),
+                    expo=None if expo_w.value == MANUELL else expo_w.value,
                     modus=modus_w.value, d_l=int(dl_w.value),
-                    n_st=int(n_w.value))
+                    n_st=int(n_w.value), d1_mm=d1_w.value or None)
 
     def _fehler(ex):
         display(HTML(_box("rot", f"❌ Eingabefehler: {ex}")))
@@ -788,7 +839,7 @@ if __name__ == "__main__":
         with mb_out:
             mb_out.clear_output()
             try:
-                display(HTML(mb_vergleich_html(l0_m=l0_w.value, fck=fck_w.value, c_nom_mm=c_w.value,
+                display(HTML(mb_vergleich_html(l0_m=l0_w.value, fck=fck_w.value, c_nom_mm=_c_nom(),
                                                d_bue_mm=float(bue_w.value), phi_ef=phi_w.value)))
             except Exception as ex:
                 _fehler(f"{type(ex).__name__}: {ex}")
@@ -796,5 +847,5 @@ if __name__ == "__main__":
     run_btn.on_click(on_run)
     var_btn.on_click(on_var)
     mb_btn.on_click(on_mb)
-    display(b_w, h_w, l0_w, fck_w, e0_w, N_w, phi_w, c_w, bue_w, modus_w, dl_w, n_w,
+    display(b_w, h_w, l0_w, fck_w, e0_w, N_w, phi_w, expo_w, c_w, bue_w, modus_w, dl_w, n_w, d1_w,
             run_btn, out_area, var_info, var_w, var_btn, var_out, mb_btn, mb_out)
