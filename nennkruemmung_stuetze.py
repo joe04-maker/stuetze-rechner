@@ -349,9 +349,20 @@ def n_rd_biegung(S, As):
     return lo
 
 
+def as_min(ausgabe, N, Ac, fyd):
+    """Mindest-Längsbewehrung [mm²].
+    2011 (NA 9.5.2(2), Gl. 9.12DE): 0,15·N_Ed/f_yd.
+    2025 (DIN EN 1992-1-1:2025-09, Tabelle 12.3 (NDP), Zeile 1): max(0,1·N_Ed/f_yd; 0,002·A_c)."""
+    if ausgabe == "2011":
+        return K_ASMIN * N / fyd
+    return max(0.1 * N / fyd, 0.002 * Ac)
+
+
 def n_rd_asmin(S, As):
-    """Normalkraft, bis zu der As >= A_s,min = 0,15·N/f_yd erfüllt ist."""
-    return As * S.fyd / K_ASMIN
+    """Normalkraft, bis zu der As >= A_s,min erfüllt ist (2011: As·fyd/0,15; 2025: As·fyd/0,1, sofern As >= 0,002·Ac)."""
+    if S.ausgabe == "2011":
+        return As * S.fyd / K_ASMIN
+    return As * S.fyd / 0.1 if As >= 0.002 * S.Ac else 0.0
 
 
 def n_rd_max(S, As):
@@ -440,7 +451,7 @@ def berechne(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN, phi_ef, c_nom_mm, d_bue_mm,
                 phi_ef=phi_ef, mit_emin=mit_emin, ausgabe=ausgabe)
 
     fyd = FYK / GAMMA_S
-    As_min = K_ASMIN * N_Ed / fyd              # NA 9.5.2(2), Gl. 9.12DE
+    As_min = as_min(ausgabe, N_Ed, b * h, fyd)  # 2011: NA 9.5.2(2); 2025: Tab. 12.3 (NDP) Zeile 1
     As_max = 0.04 * b * h
     hinweise = []
     gefunden = True
@@ -708,12 +719,12 @@ def ausgabe(E):
         ("Zentrische Querschnittstragfähigkeit (ohne Knicken)", f"{fmt(E.N0 / 1000, 1)} kN"),
         ("H", "Maximale Tragfähigkeit"),
         ("N<sub>Rd</sub> aus Biegung (M<sub>Ed</sub> = M<sub>Rd</sub>)", f"{fmt(E.N_Rd_biegung / 1000, 2)} kN"),
-        ("N<sub>Rd</sub> aus A<sub>s,min</sub> (N = A<sub>s</sub>·f<sub>yd</sub>/0,15)", f"{fmt(E.N_Rd_asmin / 1000, 2)} kN"),
+        ("N<sub>Rd</sub> aus A<sub>s,min</sub> (N = A<sub>s</sub>·f<sub>yd</sub>/" + ("0,15" if S.ausgabe == "2011" else "0,1") + ")", f"{fmt(E.N_Rd_asmin / 1000, 2)} kN"),
         ("<b>N<sub>Rd,max</sub></b> = Minimum, maßgebend: " + E.massgebend,
          f'<b style="color:#28a745;font-size:1.15em;">{fmt(E.N_Rd / 1000, 2)} kN</b>'),
         ("Ausnutzung N<sub>Ed</sub>/N<sub>Rd,max</sub>", f"<b>{fmt(ausn_N * 100, 2)} %</b>"),
         ("H", "Bewehrung"),
-        ("A<sub>s,min</sub> = 0,15·N<sub>Ed</sub>/f<sub>yd</sub> (NA 9.5.2)", f"{fmt(E.As_min / 100, 3)} cm²"),
+        (("A<sub>s,min</sub> = 0,15·N<sub>Ed</sub>/f<sub>yd</sub> (NA 9.5.2)" if S.ausgabe == "2011" else "A<sub>s,min</sub> = max(0,1·N<sub>Ed</sub>/f<sub>yd</sub>; 0,002·A<sub>c</sub>) (EC2:2025, Tab. 12.3)"), f"{fmt(E.As_min / 100, 3)} cm²"),
         ("A<sub>s,max</sub> = 0,04·A<sub>c</sub>", f"{fmt(E.As_max / 100, 2)} cm²"),
         ("Bewehrungsgrad ρ", f"{fmt(rho, 3)} %"),
         ("A<sub>s,erf</sub> aus Biegung (für N<sub>Ed</sub>)",
@@ -903,7 +914,7 @@ if __name__ == "__main__":
                              description="f_ck (N/mm²):", style=sty, layout=lay)
     e0_w = widgets.FloatText(value=0.0, description="Lastausmitte e0 (cm):", style=sty, layout=lay)
     N_w = widgets.FloatText(value=645.3, description="Normalkraft N_Ed (kN):", style=sty, layout=lay)
-    phi_w = widgets.FloatText(value=0.0, description="Kriechzahl φ_ef (-):", style=sty, layout=lay)
+    phi_w = widgets.FloatText(value=2.0, description="Kriechzahl φ_eff (-):", style=sty, layout=lay)
     expo_w = widgets.Dropdown(options=[MANUELL] + list(EXPO_KLASSEN), value="XC1",
                               description="Expositionsklasse:", style=sty, layout=lay)
     verf_w = widgets.Dropdown(options=list(VERFAHREN), value=VERFAHREN_ERC,
@@ -995,7 +1006,7 @@ if __name__ == "__main__":
             try:
                 display(HTML(mb_vergleich_as_html()))
                 display(HTML(mb_vergleich_html(l0_m=l0_w.value, fck=fck_w.value, c_nom_mm=_c_nom(),
-                                               d_bue_mm=float(bue_w.value), phi_ef=phi_w.value)))
+                                               d_bue_mm=float(bue_w.value), phi_ef=0.0)))   # mb rechnet mit φ_eff = 0
             except Exception as ex:
                 _fehler(f"{type(ex).__name__}: {ex}")
 

@@ -26,16 +26,16 @@ def n_rd_bewehrt(b, h, l0, fck, e0, phi, c, bue, d_l, n_st, d1=0.0):
     return min(bieg, asmin) / 1000.0, ("Biegung" if bieg <= asmin else "As,min")
 
 
-def n_rd_unbewehrt(b, h, l0, fck, e0):
-    return ub.rechne_unbewehrt(b, h, l0, fck, e0, 1.0)["N_Rd"]
+def n_rd_unbewehrt(b, h, l0, fck, e0, phi=0.0):
+    return ub.rechne_unbewehrt(b, h, l0, fck, e0, 1.0, phi_ef=phi)["N_Rd"]
 
 
 def tabelle(faelle, l0, fck, phi, c, bue, d_l, n_st, d1=0.0):
     zeilen = []
     for b, h, e0 in faelle:
         nb, massg = n_rd_bewehrt(b, h, l0, fck, e0, phi, c, bue, d_l, n_st, d1)
-        nu = n_rd_unbewehrt(b, h, l0, fck, e0)
-        r = ub.rechne_unbewehrt(b, h, l0, fck, e0, 1.0)
+        nu = n_rd_unbewehrt(b, h, l0, fck, e0, phi)
+        r = ub.rechne_unbewehrt(b, h, l0, fck, e0, 1.0, phi_ef=phi)
         zeilen.append(dict(
             Fall=f"{b:.0f}×{h:.0f}, " + ("zentrisch" if e0 == 0 else f"e0 = {e0:g} cm"),
             **{"λ": r["lam"], "N_Rd unbewehrt [kN]": nu, "N_Rd bewehrt [kN]": nb,
@@ -65,7 +65,7 @@ def linie(b, h, l0, fck, phi, c, bue, d_l, n_st, e_max, schritte, d1=0.0):
     daten = []
     for k in range(schritte + 1):
         e0 = e_max * k / schritte
-        daten.append(dict(e0=e0, Stütze="unbewehrt", N=n_rd_unbewehrt(b, h, l0, fck, e0)))
+        daten.append(dict(e0=e0, Stütze="unbewehrt", N=n_rd_unbewehrt(b, h, l0, fck, e0, phi)))
         daten.append(dict(e0=e0, Stütze="bewehrt", N=n_rd_bewehrt(b, h, l0, fck, e0, phi, c, bue, d_l, n_st, d1)[0]))
     df = pd.DataFrame(daten)
     return alt.Chart(df).mark_line(point=True).encode(
@@ -79,7 +79,7 @@ def linie(b, h, l0, fck, phi, c, bue, d_l, n_st, e_max, schritte, d1=0.0):
 
 
 def seite(l0, fck, phi, c, bue, d_l, n_st, d1=0.0):
-    st.markdown(f"Gleiche Stützen, **unbewehrt** (Skript-Rechenweg) gegen **bewehrt** ({n_st} Ø{d_l}, "
+    st.markdown(f"Gleiche Stützen, **unbewehrt** (EC2:2025-09, 14.4.5.2) gegen **bewehrt** ({n_st} Ø{d_l}, "
                 f"Nennkrümmungsverfahren). Knicklänge l₀ = {l0:g} m, C{fck}/{fck + 5}, c_nom = {c:g} mm, "
                 f"Bügel Ø{bue}, d₁ = {('%g mm' % d1) if d1 else 'automatisch'} und φ_ef = {phi:g} kommen aus der Seitenleiste. Bewehrung: immer wie dort "
                 f"eingestellt (feste Stabwahl, auch im Automatik-Modus).")
@@ -134,5 +134,5 @@ def seite(l0, fck, phi, c, bue, d_l, n_st, d1=0.0):
                 st.session_state["vg_line"] = linie(b, h, l0, fck, phi, c, bue, d_l, n_st, e_max, schritte, d1)
         if st.session_state.get("vg_line") is not None:
             st.altair_chart(st.session_state["vg_line"], width="stretch")
-            st.caption("Hinweis: Die unbewehrte Kurve endet bei großer Ausmitte am Mindestwert Θ = 0,1 "
-                       "(Begrenzung im Skript). Als Bild speichern: Menü ⋮ → „Save as PNG“.")
+            st.caption("Hinweis: Bei sehr großer Ausmitte geht die Tragfähigkeit der unbewehrten Stütze "
+                       "gegen null (Φ ≥ 0). Als Bild speichern: Menü ⋮ → „Save as PNG“.")

@@ -54,7 +54,7 @@ with st.sidebar:
     st.header("Eingaben (bewehrte Stütze)")
     l0 = st.number_input("Knicklänge l0 (m)", 0.1, 20.0, 2.90, 0.05, format="%.2f")
     fck = st.selectbox("f_ck (N/mm²)", nk.FCK_OPTIONEN, index=nk.FCK_OPTIONEN.index(25))
-    phi = st.number_input("Kriechzahl φ_ef (-)", 0.0, 5.0, 0.0, 0.1)
+    phi = st.number_input("Kriechzahl φ_eff (-)", 0.0, 5.0, 2.0, 0.1)
     bue = st.selectbox("Bügel Ø (mm)", [6, 8, 10, 12], index=1)
     st.markdown("**Betondeckung** (DIN EN 1992-1-1:2025-09, 6.5)")
     expo_sel = st.selectbox("Expositionsklasse", [nk.MANUELL] + list(nk.EXPO_KLASSEN), index=2,
@@ -129,15 +129,16 @@ with top_bew:
             html(nk.varianten_html(zeilen_ned(text, l0), basis(l0, fck, phi, c, bue, modus, dl, n, d1, deck)))
 
     with tab3:
-        st.markdown("Rechnet die sechs mb-BauStatik-Positionen (4 Ø12, N_Ed aus mb) mit diesem Programm nach.")
+        st.markdown("Rechnet die sechs mb-BauStatik-Positionen (4 Ø12, N_Ed aus mb) mit den Formeln von 2011 und φ_eff = 0 nach (wie mb), unabhängig vom Wert in der Seitenleiste.")
         if st.button("Vergleich mit mb-Ausdruck 📊"):
             html(nk.mb_vergleich_as_html())
-        html(nk.mb_vergleich_html(l0_m=l0, fck=fck, c_nom_mm=c, d_bue_mm=float(bue), phi_ef=phi))
+        html(nk.mb_vergleich_html(l0_m=l0, fck=fck, c_nom_mm=c, d_bue_mm=float(bue), phi_ef=0.0))
 
 
 with top_unb:
-    st.markdown("Unbewehrte Stütze nach dem Rechenweg des Skripts: N<sub>Rd</sub> = A·f<sub>cd,pl</sub>·Θ, "
-                "Θ = 1,14·(1 − 2·e<sub>tot</sub>/h) − 0,02·l<sub>0</sub>/h, f<sub>cd,pl</sub> = 0,7·f<sub>ck</sub>/1,5.",
+    st.markdown("Unbewehrte Stütze nach DIN EN 1992-1-1:2025-09, 14.4.5.2: N<sub>Rd</sub> = b·h·f<sub>cd,pl</sub>·Φ (Gl. 14.10), "
+                "Φ nach Gl. (14.11), f<sub>cd,pl</sub> = 0,8·f<sub>cd</sub> (Gl. 14.1), f<sub>cd</sub> = 0,85·f<sub>ck</sub>/1,5. "
+                "Kriechzahl φ<sub>eff</sub> aus der Seitenleiste.",
                 unsafe_allow_html=True)
     u1, u2 = st.tabs(["Einzelberechnung", "Varianten"])
     with u1:
@@ -151,7 +152,7 @@ with top_unb:
         ub_N = a6.number_input("Charakt. Normalkraft N_k (kN)", 1.0, 100000.0, 200.0, 10.0, key="ub_N")
         if st.button("Berechnen 🚀", type="primary", key="ub_run"):
             try:
-                html(ub.ausgabe_unbewehrt(ub.rechne_unbewehrt(ub_b, ub_h, ub_l0, ub_fck, ub_e0, ned(ub_N, ub_b, ub_h, ub_l0))))
+                html(ub.ausgabe_unbewehrt(ub.rechne_unbewehrt(ub_b, ub_h, ub_l0, ub_fck, ub_e0, ned(ub_N, ub_b, ub_h, ub_l0), phi_ef=phi)))
             except Exception as ex:
                 html(nk._box("rot", f"❌ Eingabefehler: {ex}"))
     with u2:
@@ -160,7 +161,7 @@ with top_unb:
                     "der Einzelberechnung.")
         ub_text = st.text_area("Varianten", "20 20 100\n25 25 167 25 2,5\n30 30 267", height=120, key="ub_var")
         if st.button("Varianten rechnen 📋", key="ub_var_btn"):
-            html(ub.varianten_unbewehrt(zeilen_ned(ub_text, ub_l0), ub_l0, ub_fck))
+            html(ub.varianten_unbewehrt(zeilen_ned(ub_text, ub_l0), ub_l0, ub_fck, phi_ef=phi))
 
 with top_vg:
     vergleich.seite(l0, fck, phi, c, bue, int(dl), int(n), d1)
