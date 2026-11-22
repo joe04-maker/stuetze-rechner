@@ -51,11 +51,19 @@ with st.sidebar:
     st.header("Lasten")
     st.caption("Eingegeben wird die charakteristische Normalkraft N_k; N_Ed = 1,5·N_k (+ 1,35·G_k).")
     mit_g = st.checkbox("Eigenlast der Stütze berücksichtigen (G_k = b·h·l₀·25 kN/m³)", value=False)
-    st.header("Eingaben (bewehrte Stütze)")
+    st.header("Gemeinsame Eingaben")
+    st.caption("Gelten für die bewehrte und die unbewehrte Stütze und für den Vergleich.")
     l0 = st.number_input("Knicklänge l0 (m)", 0.1, 20.0, 2.90, 0.05, format="%.2f")
     fck = st.selectbox("f_ck (N/mm²)", nk.FCK_OPTIONEN, index=nk.FCK_OPTIONEN.index(25))
     phi = st.number_input("Kriechzahl φ_eff (-)", 0.0, 5.0, 2.0, 0.1)
-    bue = st.selectbox("Bügel Ø (mm)", [6, 8, 10, 12], index=1)
+    st.header("Nur bewehrte Stütze")
+    modus_txt = st.radio("Bewehrung", ["Vorgeben (Standard: 4 Ø12, je Ecke 1 Stab)",
+                                       "Automatisch wählen (kleinste ausreichende)"])
+    modus = "fix" if modus_txt.startswith("Vorgeben") else "auto"
+    w_bue, w_dl = st.columns(2)
+    bue = w_bue.selectbox("Bügel Ø (mm)", [6, 8, 10, 12], index=1)
+    dl = w_dl.selectbox("Längsstab Ø (mm)", nk.STAB_D, index=0, disabled=modus == "auto")
+    n = st.selectbox("Anzahl Stäbe (min. 4)", nk.STAB_N, index=0, disabled=modus == "auto")
     st.markdown("**Betondeckung** (DIN EN 1992-1-1:2025-09, 6.5)")
     expo_sel = st.selectbox("Expositionsklasse", [nk.MANUELL] + list(nk.EXPO_KLASSEN), index=2,
                             help="c_nom = c_min + Δc_dev (6.1), c_min = max(c_min,dur; c_min,b; 10 mm) (6.2). "
@@ -85,11 +93,6 @@ with st.sidebar:
         except ValueError as ex:
             st.error(str(ex))
             st.stop()
-    modus_txt = st.radio("Bewehrung", ["Vorgeben (Standard: 4 Ø12, je Ecke 1 Stab)",
-                                       "Automatisch wählen (kleinste ausreichende)"])
-    modus = "fix" if modus_txt.startswith("Vorgeben") else "auto"
-    dl = st.selectbox("Längsstab Ø (mm)", nk.STAB_D, index=0, disabled=modus == "auto")
-    n = st.selectbox("Anzahl Stäbe (min. 4)", nk.STAB_N, index=0, disabled=modus == "auto")
     d1 = st.number_input("Achsabstand d1 (mm), 0 = aus c_nom", 0.0, 200.0, 0.0, 1.0, disabled=modus == "auto",
                          help="0: d1 = c_nom + Bügel-Ø + Stab-Ø/2. Nur im Modus „Vorgeben“. Bei „Automatisch wählen“ "
                               "wird d1 für den jeweils gewählten Stab immer neu berechnet.")
@@ -138,30 +141,27 @@ with top_bew:
 with top_unb:
     st.markdown("Unbewehrte Stütze nach DIN EN 1992-1-1:2025-09, 14.4.5.2: N<sub>Rd</sub> = b·h·f<sub>cd,pl</sub>·Φ (Gl. 14.10), "
                 "Φ nach Gl. (14.11), f<sub>cd,pl</sub> = 0,8·f<sub>cd</sub> (Gl. 14.1), f<sub>cd</sub> = 0,85·f<sub>ck</sub>/1,5. "
-                "Kriechzahl φ<sub>eff</sub> kommt aus der Seitenleiste, <b>f<sub>ck</sub> wird hier im Tab gewählt</b> (nicht in der Seitenleiste).",
+                "Knicklänge l<sub>0</sub>, f<sub>ck</sub> und Kriechzahl φ<sub>eff</sub> kommen aus der Seitenleiste.",
                 unsafe_allow_html=True)
     u1, u2 = st.tabs(["Einzelberechnung", "Varianten"])
     with u1:
-        a1, a2, a3 = st.columns(3)
+        a1, a2, a5, a6 = st.columns(4)
         ub_b = a1.number_input("Breite b (cm)", 10.0, 200.0, 30.0, 5.0, key="ub_b")
         ub_h = a2.number_input("Höhe h (cm)", 10.0, 200.0, 30.0, 5.0, key="ub_h")
-        ub_l0 = a3.number_input("Systemlänge l0 (m)", 0.1, 20.0, 2.90, 0.05, format="%.2f", key="ub_l0")
-        a4, a5, a6 = st.columns(3)
-        ub_fck = a4.selectbox("f_ck (N/mm²)", ub.FCK_OPTIONEN_UNBEW, index=4, key="ub_fck")
         ub_e0 = a5.number_input("Ausmitte e0 (cm)", 0.0, 100.0, 0.0, 0.5, key="ub_e0")
         ub_N = a6.number_input("Charakt. Normalkraft N_k (kN)", 1.0, 100000.0, 200.0, 10.0, key="ub_N")
+        st.caption(f"Aus der Seitenleiste: l₀ = {nk.fmt(l0, 2)} m, Beton {ub.fck_klasse(fck)}, φ_eff = {nk.fmt(phi, 2)}")
         if st.button("Berechnen 🚀", type="primary", key="ub_run"):
             try:
-                html(ub.ausgabe_unbewehrt(ub.rechne_unbewehrt(ub_b, ub_h, ub_l0, ub_fck, ub_e0, ned(ub_N, ub_b, ub_h, ub_l0), phi_ef=phi)))
+                html(ub.ausgabe_unbewehrt(ub.rechne_unbewehrt(ub_b, ub_h, l0, fck, ub_e0, ned(ub_N, ub_b, ub_h, l0), phi_ef=phi)))
             except Exception as ex:
                 html(nk._box("rot", f"❌ Eingabefehler: {ex}"))
     with u2:
         st.markdown("Eine Zeile je Variante: `b h N_k [fck [e0]]` (cm, cm, kN charakteristisch, N/mm², cm). "
-                    "Ohne e0 wird zentrisch gerechnet. Systemlänge und Standard-f_ck kommen aus den Feldern "
-                    "der Einzelberechnung.")
+                    "Ohne e0 wird zentrisch gerechnet, ohne fck gilt der Wert in der Seitenleiste.")
         ub_text = st.text_area("Varianten", "20 20 100\n25 25 167 25 2,5\n30 30 267", height=120, key="ub_var")
         if st.button("Varianten rechnen 📋", key="ub_var_btn"):
-            html(ub.varianten_unbewehrt(zeilen_ned(ub_text, ub_l0), ub_l0, ub_fck, phi_ef=phi))
+            html(ub.varianten_unbewehrt(zeilen_ned(ub_text, l0), l0, fck, phi_ef=phi))
 
 with top_vg:
     vergleich.seite(l0, fck, phi, c, bue, int(dl), int(n), d1)
