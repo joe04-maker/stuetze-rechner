@@ -80,7 +80,7 @@ def linie(b, h, l0, fck, phi, c, bue, d_l, n_st, e_max, schritte, d1=0.0):
 
 def seite(l0, fck, phi, c, bue, d_l, n_st, d1=0.0):
     st.markdown(f"Gleiche Stützen, **unbewehrt** (EC2:2025-09, 14.4.5.2) gegen **bewehrt** ({n_st} Ø{d_l}, "
-                f"Nennkrümmungsverfahren). Knicklänge l₀ = {l0:g} m, C{fck}/{fck + 5}, c_nom = {c:g} mm, "
+                f"Nennkrümmungsverfahren). Knicklänge l₀ = {l0:g} m, {ub.fck_klasse(fck)}, c_nom = {c:g} mm, "
                 f"Bügel Ø{bue}, d₁ = {('%g mm' % d1) if d1 else 'automatisch'} und φ_ef = {phi:g} kommen aus der Seitenleiste. Bewehrung: immer wie dort "
                 f"eingestellt (feste Stabwahl, auch im Automatik-Modus).")
     t1, t2, t3 = st.tabs(["Tabelle", "Balkendiagramm", "Verlauf über e0"])

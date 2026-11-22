@@ -4,11 +4,19 @@ import re
 
 from nennkruemmung_stuetze import _box, _html_tabelle, _karte, fmt
 
-FCK_OPTIONEN_UNBEW = (8, 12, 16, 20, 25, 30, 35)
+FCK_OPTIONEN_UNBEW = (8, 12, 16, 20, 25, 30, 35, 40, 45, 50)   # vereinfachtes Verfahren 14.4.5.2 (1): f_ck < 55 N/mm²
+FCK_MAX_UNBEW = 55.0   # DIN EN 1992-1-1:2025-09, 14.4.5.2 (1): unbewehrter Beton mit f_ck < 55 MPa
 LAM_LIM = 86.0      # EC2:2025-09, 14.4.5.1(5): für unbewehrte Ortbetonwände; für Stützen keine eigene Grenze genannt
 ALPHA_CC = 0.85     # f_cd = α·f_ck/γ_C  (bewusst 0,85 gewählt; EC2:2025: η_cc·k_tc, k_tc = 1,0 oder 0,85)
 KC_PL = 0.8         # EC2:2025-09, Gl. (14.1): f_cd,pl = k_c,pl · f_cd, k_c,pl = 0,8 (NDP)
 GAMMA_C = 1.5
+_FCK_CUBE = {8: 10, 12: 15, 16: 20, 20: 25, 25: 30, 30: 37, 35: 45, 40: 50, 45: 55, 50: 60, 55: 67}
+
+
+def fck_klasse(fck):
+    """Name der Festigkeitsklasse, z. B. 25 -> 'C25/30', 30 -> 'C30/37', 40 -> 'C40/50'."""
+    f = int(round(fck))
+    return f"C{f}/{_FCK_CUBE.get(f, f + 5)}"
 
 
 def rechne_unbewehrt(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN, phi_ef=0.0):
@@ -18,6 +26,9 @@ def rechne_unbewehrt(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN, phi_ef=0.0):
         raise ValueError("b, h und l0 müssen größer als 0 sein.")
     if N_Ed_kN <= 0:
         raise ValueError("N_Ed muss größer als 0 sein.")
+    if fck >= FCK_MAX_UNBEW:
+        raise ValueError("Das vereinfachte Verfahren nach DIN EN 1992-1-1:2025-09, 14.4.5.2 (1) gilt nur für "
+                         "unbewehrten Beton mit f_ck < 55 N/mm².")
     l0_cm = l0_m * 100.0
     i_cm = h_cm / math.sqrt(12.0)
     lam = l0_cm / i_cm
@@ -57,6 +68,7 @@ def ausgabe_unbewehrt(r):
     zeilen = [
         ("Normalkraft N<sub>Ed</sub>", f"{fmt(r['N_Ed'], 1)} kN"),
         ("Querschnitt b × h / Systemlänge l<sub>0</sub>", f"{fmt(r['b'], 0)} × {fmt(r['h'], 0)} cm / {fmt(r['l0'])} m"),
+        ("Beton", f"<b>{fck_klasse(r['fck'])}</b> (f<sub>ck</sub> = {fmt(r['fck'], 0)} N/mm²)"),
         ("Trägheitsradius i", f"{fmt(r['i'])} cm"),
         ("Schlankheit λ", lam_txt),
         ("Gesamtausmitte e<sub>tot</sub> = e<sub>0</sub> + l<sub>0</sub>/400", f"{fmt(r['etot'], 3)} cm"),
@@ -76,7 +88,7 @@ def _zahl(t):
 
 
 def varianten_unbewehrt(text, l0_m, fck_std, phi_ef=0.0):
-    kopf = ["b×h [cm]", "C", "e<sub>0</sub> [cm]", "λ", "Φ", "N<sub>Ed</sub> [kN]",
+    kopf = ["b×h [cm]", "Beton", "e<sub>0</sub> [cm]", "λ", "Φ", "N<sub>Ed</sub> [kN]",
             "N<sub>Rd</sub> [kN]", "Ausnutzung", "Nachweis"]
     zeilen, anzahl = [], 0
     for nr, zeile in enumerate(text.splitlines(), 1):
@@ -92,7 +104,7 @@ def varianten_unbewehrt(text, l0_m, fck_std, phi_ef=0.0):
             fck = _zahl(t[3]) if len(t) >= 4 else fck_std
             e0 = _zahl(t[4]) if len(t) == 5 else 0.0
             r = rechne_unbewehrt(b, h, l0_m, fck, e0, N, phi_ef=phi_ef)
-            zeilen.append([f"{fmt(b, 0)}×{fmt(h, 0)}", f"{fck:.0f}", fmt(e0, 1), fmt(r["lam"], 1),
+            zeilen.append([f"{fmt(b, 0)}×{fmt(h, 0)}", fck_klasse(fck), fmt(e0, 1), fmt(r["lam"], 1),
                            fmt(r["theta"], 3), fmt(N, 2), fmt(r["N_Rd"], 2),
                            f"{fmt(r['ausn'] * 100, 2)} %", "✅ erfüllt" if r["ok"] else "⚠️ nicht erfüllt"])
         except Exception as ex:

@@ -138,7 +138,7 @@ with top_bew:
 with top_unb:
     st.markdown("Unbewehrte Stütze nach DIN EN 1992-1-1:2025-09, 14.4.5.2: N<sub>Rd</sub> = b·h·f<sub>cd,pl</sub>·Φ (Gl. 14.10), "
                 "Φ nach Gl. (14.11), f<sub>cd,pl</sub> = 0,8·f<sub>cd</sub> (Gl. 14.1), f<sub>cd</sub> = 0,85·f<sub>ck</sub>/1,5. "
-                "Kriechzahl φ<sub>eff</sub> aus der Seitenleiste.",
+                "Kriechzahl φ<sub>eff</sub> kommt aus der Seitenleiste, <b>f<sub>ck</sub> wird hier im Tab gewählt</b> (nicht in der Seitenleiste).",
                 unsafe_allow_html=True)
     u1, u2 = st.tabs(["Einzelberechnung", "Varianten"])
     with u1:
