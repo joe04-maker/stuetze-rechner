@@ -1,7 +1,7 @@
 # @title 🏗️ Stahlbetonstütze – Nennkrümmungsverfahren (DIN EN 1992-1-1 mit NA Deutschland)
 """
 Bewehrte Rechteckstütze, Biegung um eine Achse, Bewehrung in 2 Lagen (As/2 je Seite).
-Vorgehen wie mb BauStatik S401 (Pendelstütze, Nennkrümmung):
+Vorgehen: Pendelstütze, Nennkrümmungsverfahren:
 
   * Schlankheit, Grenzschlankheit (NA 5.8.3.1), Imperfektion e_i = l0/400
   * Momente I. Ordnung entlang der Stütze: M0Ed(x) = N·(e_i + Ausmitte(x)),
@@ -156,7 +156,7 @@ class Stuetze:
     e0: float = 0.0           # planmäßige Ausmitte der Last am Kopf [mm] (Fuß: momentenfrei)
     phi_ef: float = 0.0       # effektive Kriechzahl [-]
     mit_emin: bool = False    # Mindestausmitte max(h/30; 20 mm) zusätzlich ansetzen
-    ausgabe: str = "2025"     # "2025" = DIN EN 1992-1-1:2025-09 (Anhang O.7); "2011" = DIN EN 1992-1-1:2011 + NA (wie mb)
+    ausgabe: str = "2025"     # "2025" = DIN EN 1992-1-1:2025-09 (Anhang O.7); "2011" = DIN EN 1992-1-1:2011 + NA
 
     def __post_init__(self):
         if min(self.b, self.h, self.l0) <= 0:
@@ -246,7 +246,7 @@ def n_zentrisch(S, As):
 
 
 # =============================================================================
-# 4) NENNKRÜMMUNGSVERFAHREN (EC2 5.8.8, NA) mit Momentenverlauf wie mb
+# 4) NENNKRÜMMUNGSVERFAHREN (EC2 5.8.8, NA) mit Momentenverlauf
 # =============================================================================
 @dataclass
 class Kruemmung:
@@ -693,7 +693,7 @@ def ausgabe(E):
         ("i / λ", f"{fmt(S.i, 2)} mm / {fmt(k.lam, 2)}"),
         ("n = N<sub>Ed</sub>/(A<sub>c</sub>·f<sub>cd</sub>)", fmt(k.n, 4)),
         ("λ<sub>lim</sub> (" + ("NA 5.8.3.1" if S.ausgabe == "2011" else "EN 1992-1-1:2023, Gl. O.12") + ")", fmt(k.lam_lim, 2) + (" → Theorie II. Ordnung nötig" if k.theorie2 else " → Theorie I. Ordnung genügt")),
-        ("H", "Nennkrümmung (wie mb: Imperfektion, Θ<sub>i</sub> = 1/200, c = 10)"),
+        ("H", "Nennkrümmung (Imperfektion, Θ<sub>i</sub> = 1/200, c = 10)"),
         ("e<sub>i</sub> = l<sub>0</sub>/400", f"{fmt(k.e_i / 10, 2)} cm"),
     ]
     if S.mit_emin:
@@ -702,15 +702,24 @@ def ausgabe(E):
         ("e<sub>Kopf</sub> = e<sub>0</sub> + e<sub>i</sub> / e<sub>Fuß</sub>", f"{fmt(k.e_kopf / 10, 2)} cm / {fmt(k.e_fuss / 10, 2)} cm"),
     ]
     if k.theorie2:
-        zeilen += [
-            ("K<sub>r</sub>", fmt(k.Kr, 3)),
-            ("k<sub>1</sub> / K<sub>φ</sub>", f"{fmt(k.k1, 3)} / {fmt(k.Kphi, 3)}"),
-            ("1/r<sub>0</sub> = " + ("ε<sub>yd</sub>/(0,45·d)" if S.ausgabe == "2011" else "2·ε<sub>yd</sub>/(d − d′), Gl. O.19"), f"{fmt(k.inv_r0 * 1000, 6)} 1/m"),
-            ("1/r = K<sub>r</sub>·K<sub>φ</sub>·(1/r<sub>0</sub>)  (so weist mb aus)", f"{fmt(k.Kr * k.Kphi * k.inv_r0 * 1000, 6)} 1/m"),
-            ("e<sub>2</sub> = k<sub>1</sub>·(1/r)·l<sub>0</sub>²/10", f"{fmt(k.e2 / 10, 3)} cm"),
-        ]
+        if S.ausgabe == "2011":      # k1 gibt es nur in DIN EN 1992-1-1/NA (2011); EN 1992-1-1:2023 kennt es nicht
+            zeilen += [
+                ("K<sub>r</sub>", fmt(k.Kr, 3)),
+                ("k<sub>1</sub> / K<sub>φ</sub>", f"{fmt(k.k1, 3)} / {fmt(k.Kphi, 3)}"),
+                ("1/r<sub>0</sub> = ε<sub>yd</sub>/(0,45·d)", f"{fmt(k.inv_r0 * 1000, 6)} 1/m"),
+                ("1/r = K<sub>r</sub>·K<sub>φ</sub>·(1/r<sub>0</sub>)", f"{fmt(k.Kr * k.Kphi * k.inv_r0 * 1000, 6)} 1/m"),
+                ("e<sub>2</sub> = k<sub>1</sub>·(1/r)·l<sub>0</sub>²/10", f"{fmt(k.e2 / 10, 3)} cm"),
+            ]
+        else:
+            zeilen += [
+                ("K<sub>r</sub> / K<sub>φ</sub>", f"{fmt(k.Kr, 3)} / {fmt(k.Kphi, 3)}"),
+                ("1/r<sub>0</sub> = 2·ε<sub>yd</sub>/(d − d′), Gl. O.19", f"{fmt(k.inv_r0 * 1000, 6)} 1/m"),
+                ("1/r = K<sub>r</sub>·K<sub>φ</sub>·(1/r<sub>0</sub>)", f"{fmt(k.Kr * k.Kphi * k.inv_r0 * 1000, 6)} 1/m"),
+                ("e<sub>2</sub> = (1/r)·l<sub>0</sub>²/10", f"{fmt(k.e2 / 10, 3)} cm"),
+            ]
     zeilen += [
         ("Kritischer Schnitt x", f"{fmt(k.xi_krit * S.l0 / 1000)} m"),
+        ("e<sub>tot</sub> = e<sub>0,krit</sub> + e<sub>2,krit</sub>", f"{fmt(k.e0_krit / 10, 2)} + {fmt(k.e2_krit / 10, 2)} = {fmt(k.e_tot / 10, 2)} cm"),
         ("M<sub>Ed,z</sub> = max [M<sub>0Ed</sub> + M<sub>2</sub>]", f"{fmt(E.Med_Ned / 1e6, 3)} kNm"),
         ("M<sub>Ed,y</sub> (Gegenrichtung: nur Imperfektion + M<sub>2</sub>)", f"{fmt(My, 3)} kNm"),
         ("H", "Querschnittswiderstand"),
@@ -729,7 +738,7 @@ def ausgabe(E):
         ("Bewehrungsgrad ρ", f"{fmt(rho, 3)} %"),
         ("A<sub>s,erf</sub> aus Biegung (für N<sub>Ed</sub>)",
          ("&gt; A<sub>s,max</sub> (nicht erreichbar)" if E.As_erf is None else f"{fmt(E.As_erf / 100, 3)} cm²")),
-        ("A<sub>s1</sub> je Ecke wie in mb = max(A<sub>s,erf</sub>; A<sub>s,min</sub>)/4", as1_txt),
+        ("A<sub>s1</sub> je Ecke = max(A<sub>s,erf</sub>; A<sub>s,min</sub>)/4", as1_txt),
         ("Bügel", f"Ø{fmt(E.d_bue, 0)} (min. Ø{fmt(d_bue_min, 1)}), s ≤ {fmt(s_max, 0)} mm (EC2 9.5.3)"),
     ]
 
@@ -737,14 +746,14 @@ def ausgabe(E):
       <h3 style="margin-top:0;">📊 Nennkrümmungsverfahren – Ergebnisse</h3>
       {status}{hin}
       {_tabelle(zeilen)}
-      <h4 style="margin:18px 0 4px 0;">Momente entlang der Stütze bei N<sub>Ed</sub> (wie mb: Kopf, kritischer Schnitt, Fuß)</h4>
+      <h4 style="margin:18px 0 4px 0;">Momente entlang der Stütze bei N<sub>Ed</sub> (Kopf, kritischer Schnitt, Fuß)</h4>
       {momententabelle(S, N_Ed, k)}
       <h4 style="margin:18px 0 4px 0;">Iteration um N<sub>Rd</sub> aus Biegung (M<sub>Ed</sub>(N) gegen M<sub>Rd</sub>(N))</h4>
       {iterationstabelle(S, E.As_gew, E.N_Rd_biegung)}
       <p style="font-size:0.85em;color:#555;">
         Annahmen: f<sub>cd</sub> = {ALPHA_CC}·f<sub>ck</sub>/{GAMMA_C}, f<sub>yd</sub> = 500/{GAMMA_S}; Parabel-Rechteck-Diagramm;
         Bewehrung in 2 Lagen (A<sub>s</sub>/2 je Seite); einachsige Biegung um die Achse mit Höhe h, die Gegenrichtung
-        (nur Imperfektion) wird wie in mb getrennt betrachtet, keine zweiachsige Interaktion. Moment I. Ordnung linear
+        (nur Imperfektion) wird getrennt betrachtet, keine zweiachsige Interaktion. Moment I. Ordnung linear
         zwischen Fuß und Kopf, M<sub>2</sub>(x) = N·e<sub>2</sub>·sin(π·x/l<sub>0</sub>). Mindestausmitte nur, wenn ihr Schalter aktiv ist.
         Bügelabstand: Verschärfungen des NA an Decken/Stößen separat prüfen.
       </p>""")
