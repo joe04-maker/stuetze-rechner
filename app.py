@@ -4,7 +4,11 @@ import streamlit as st
 import nennkruemmung_stuetze as nk
 import unbewehrt_stuetze as ub
 import vergleich
-import abbildungen as abb
+try:
+    import abbildungen as abb          # N–M-Diagramm (braucht matplotlib); fehlt es, läuft das Programm trotzdem
+except Exception as _ex:
+    abb = None
+    _ABB_FEHLER = f"{type(_ex).__name__}: {_ex}"
 
 st.set_page_config(page_title="Tragfähigkeit von Betonstützen", page_icon="🏗️", layout="wide")
 st.title("🏗️ Tragfähigkeit von Betonstützen")
@@ -120,7 +124,11 @@ with top_bew:
                            + f" = {ned(N, b, h, l0):.2f} kN")
                 E = nk.berechne(b, h, N_Ed_kN=ned(N, b, h, l0), **kw)
                 html(nk.ausgabe(E))
-                abb.zeige_bewehrt(st, E)
+                if abb is not None:
+                    abb.zeige_bewehrt(st, E)
+                else:
+                    st.warning(f"N–M-Diagramm nicht verfügbar ({_ABB_FEHLER}). Prüfe, ob abbildungen.py im Ordner liegt "
+                               "und in requirements.txt matplotlib steht.")
             except ValueError as ex:
                 html(nk._box("rot", f"❌ Eingabefehler: {ex}"))
             except Exception as ex:
