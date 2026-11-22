@@ -1,4 +1,4 @@
-"""Unbewehrte Stütze – Handrechnungs-Nachbildung nach Skript (Rechenweg unverändert aus dem Colab-Skript)."""
+"""Unbewehrte Stütze nach DIN EN 1992-1-1:2025-09, Abschnitt 14."""
 import math
 import re
 
@@ -11,12 +11,9 @@ KC_PL = 0.8         # EC2:2025-09, Gl. (14.1): f_cd,pl = k_c,pl · f_cd, k_c,pl 
 GAMMA_C = 1.5
 
 
-def rechne_unbewehrt(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN, phi_ef=0.0, ausgabe="2025"):
-    """Unbewehrte Stütze (Standard: DIN EN 1992-1-1:2025-09; ausgabe="2011": Rechenweg des Skripts).
-    ausgabe "2025": DIN EN 1992-1-1:2025-09, 14.2 und 14.4.5.2 (Gl. 14.1, 14.10, 14.11, 14.12);
-                    e_tot = e0 + l0/400, f_cd,pl = 0,8·(0,85·f_ck/1,5), Φ nach Gl. (14.11) mit φ_eff.
-    ausgabe "2011": Rechenweg des Skripts / DIN EN 1992-1-1:2011 + NA (wie mb):
-                    Θ = 1,14·(1 − 2·e_tot/h) − 0,02·l0/h (0,1…1,0), f_cd,pl = 0,7·f_ck/1,5."""
+def rechne_unbewehrt(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN, phi_ef=0.0):
+    """Unbewehrte Stütze nach DIN EN 1992-1-1:2025-09, 14.2 und 14.4.5.2 (Gl. 14.1, 14.10, 14.11, 14.12):
+    e_tot = e0 + l0/400, f_cd,pl = 0,8·(0,85·f_ck/1,5), Φ nach Gl. (14.11) mit φ_eff."""
     if min(b_cm, h_cm, l0_m) <= 0:
         raise ValueError("b, h und l0 müssen größer als 0 sein.")
     if N_Ed_kN <= 0:
@@ -25,31 +22,25 @@ def rechne_unbewehrt(b_cm, h_cm, l0_m, fck, e0_cm, N_Ed_kN, phi_ef=0.0, ausgabe=
     i_cm = h_cm / math.sqrt(12.0)
     lam = l0_cm / i_cm
     etot_cm = e0_cm + l0_cm / 400.0
-    if ausgabe == "2011":
-        theta_roh = 1.14 * (1.0 - 2.0 * etot_cm / h_cm) - 0.02 * l0_cm / h_cm
-        theta = max(0.1, min(theta_roh, 1.0))
-        fcd_pl = 0.7 * fck / 1.5
-    else:
-        fcd = ALPHA_CC * fck / GAMMA_C
-        fcd_pl = KC_PL * fcd
-        x, lh = etot_cm / h_cm, l0_cm / h_cm
-        zaehler = 1.0 - (2.1 + 0.02 * lh) * x
-        nenner = 1.0 + lh ** 2 * (0.9 + 6.0 * x) * ((0.8 + phi_ef) / 1000.0) * (fcd_pl / 20.0) ** 0.6
-        theta_roh = zaehler / nenner
-        theta = max(0.0, theta_roh)
+    fcd = ALPHA_CC * fck / GAMMA_C
+    fcd_pl = KC_PL * fcd
+    x, lh = etot_cm / h_cm, l0_cm / h_cm
+    zaehler = 1.0 - (2.1 + 0.02 * lh) * x
+    nenner = 1.0 + lh ** 2 * (0.9 + 6.0 * x) * ((0.8 + phi_ef) / 1000.0) * (fcd_pl / 20.0) ** 0.6
+    theta_roh = zaehler / nenner
+    theta = max(0.0, theta_roh)
     A_m2 = (b_cm / 100.0) * (h_cm / 100.0)
     N_Rd_MN = A_m2 * fcd_pl * theta
     N_Rd_kN = N_Rd_MN * 1000.0
     ausn = N_Ed_kN / N_Rd_kN if N_Rd_kN > 0 else float("inf")
     return dict(b=b_cm, h=h_cm, l0=l0_m, fck=fck, e0=e0_cm, N_Ed=N_Ed_kN, i=i_cm, lam=lam,
                 etot=etot_cm, theta_roh=theta_roh, theta=theta, fcd_pl=fcd_pl,
-                N_Rd_MN=N_Rd_MN, N_Rd=N_Rd_kN, ausn=ausn, ausgabe=ausgabe, phi_ef=phi_ef,
+                N_Rd_MN=N_Rd_MN, N_Rd=N_Rd_kN, ausn=ausn, phi_ef=phi_ef,
                 ok=(N_Rd_kN > 0 and round(N_Ed_kN / N_Rd_kN * 100.0, 2) <= 100.01),
                 lam_ok=lam <= LAM_LIM)
 
 
 def ausgabe_unbewehrt(r):
-    neu = r.get("ausgabe", "2025") != "2011"
     if r["ok"]:
         status = _box("gruen", f"✅ Tragfähigkeit nachgewiesen: N<sub>Ed</sub> ≤ N<sub>Rd</sub> "
                                f"(Ausnutzung: {fmt(r['ausn'] * 100, 1)} %)")
@@ -58,22 +49,11 @@ def ausgabe_unbewehrt(r):
                              f"Widerstand N<sub>Rd</sub> ({fmt(r['N_Rd'], 1)} kN).<br>➔ "
                              f"<b>Die Stütze kann nicht unbewehrt ausgeführt werden!</b> "
                              f"(Ausnutzung: {fmt(r['ausn'] * 100, 1)} %)")
-    hinweis = ""
-    if not neu and abs(r["theta_roh"] - r["theta"]) > 1e-12:
-        hinweis = (f'<div style="color:#856404;">⚠️ Θ rechnerisch {fmt(r["theta_roh"], 3)}, '
-                   f'begrenzt auf {fmt(r["theta"], 3)} (Skript: 0,1 ≤ Θ ≤ 1,0).</div>')
-    if neu:
-        titel = "📊 Ergebnisse unbewehrte Stütze (DIN EN 1992-1-1:2025-09, 14.4.5.2)"
-        zeile_phi = ("Abminderungsbeiwert Φ nach Gl. (14.11)", f"<b>{fmt(r['theta'], 3)}</b> (φ<sub>eff</sub> = {fmt(r['phi_ef'], 2)})")
-        zeile_fcd = ("Bemessungs-Druckfestigkeit f<sub>cd,pl</sub> = k<sub>c,pl</sub>·f<sub>cd</sub> = 0,8·0,85·f<sub>ck</sub>/1,5 (Gl. 14.1)",
-                     f"{fmt(r['fcd_pl'], 3)} MN/m²")
-        lam_txt = (f"{fmt(r['lam'])} (für Wände gilt λ ≤ {fmt(LAM_LIM, 0)}, 14.4.5.1(5))")
-    else:
-        titel = "📊 Ergebnisse nach Skript-Schema (unbewehrt, Ausgabe 2011)"
-        zeile_phi = ("Abminderungsbeiwert Θ", f"<b>{fmt(r['theta'], 3)}</b>")
-        zeile_fcd = ("Bemessungs-Druckfestigkeit f<sub>cd,pl</sub> = 0,7·f<sub>ck</sub>/1,5", f"{fmt(r['fcd_pl'], 3)} MN/m²")
-        lam_txt = (f"{fmt(r['lam'])} (Grenzwert λ<sub>lim</sub> = {fmt(LAM_LIM, 0)}) → "
-                   f"<b>{'Eingehalten (OK)' if r['lam_ok'] else 'Überschritten'}</b>")
+    titel = "📊 Ergebnisse unbewehrte Stütze (DIN EN 1992-1-1:2025-09, 14.4.5.2)"
+    zeile_phi = ("Abminderungsbeiwert Φ nach Gl. (14.11)", f"<b>{fmt(r['theta'], 3)}</b> (φ<sub>eff</sub> = {fmt(r['phi_ef'], 2)})")
+    zeile_fcd = ("Bemessungs-Druckfestigkeit f<sub>cd,pl</sub> = k<sub>c,pl</sub>·f<sub>cd</sub> = 0,8·0,85·f<sub>ck</sub>/1,5 (Gl. 14.1)",
+                 f"{fmt(r['fcd_pl'], 3)} MN/m²")
+    lam_txt = f"{fmt(r['lam'])} (für Wände gilt λ ≤ {fmt(LAM_LIM, 0)}, 14.4.5.1 (5))"
     zeilen = [
         ("Normalkraft N<sub>Ed</sub>", f"{fmt(r['N_Ed'], 1)} kN"),
         ("Querschnitt b × h / Systemlänge l<sub>0</sub>", f"{fmt(r['b'], 0)} × {fmt(r['h'], 0)} cm / {fmt(r['l0'])} m"),
@@ -88,15 +68,15 @@ def ausgabe_unbewehrt(r):
     tab = '<table style="border-collapse:collapse;color:#222;font-size:0.95em;">' + "".join(
         f'<tr><td style="padding:3px 28px 3px 0;">{a}</td><td style="padding:3px 0;">{b}</td></tr>'
         for a, b in zeilen) + "</table>"
-    return _karte(f'<h3 style="margin-top:0;">{titel}</h3>{tab}{hinweis}{status}')
+    return _karte(f'<h3 style="margin-top:0;">{titel}</h3>{tab}{status}')
 
 
 def _zahl(t):
     return float(t.replace(",", "."))
 
 
-def varianten_unbewehrt(text, l0_m, fck_std, phi_ef=0.0, ausgabe="2025"):
-    kopf = ["b×h [cm]", "C", "e<sub>0</sub> [cm]", "λ", "Φ" if ausgabe != "2011" else "Θ", "N<sub>Ed</sub> [kN]",
+def varianten_unbewehrt(text, l0_m, fck_std, phi_ef=0.0):
+    kopf = ["b×h [cm]", "C", "e<sub>0</sub> [cm]", "λ", "Φ", "N<sub>Ed</sub> [kN]",
             "N<sub>Rd</sub> [kN]", "Ausnutzung", "Nachweis"]
     zeilen, anzahl = [], 0
     for nr, zeile in enumerate(text.splitlines(), 1):
@@ -111,7 +91,7 @@ def varianten_unbewehrt(text, l0_m, fck_std, phi_ef=0.0, ausgabe="2025"):
             b, h, N = _zahl(t[0]), _zahl(t[1]), _zahl(t[2])
             fck = _zahl(t[3]) if len(t) >= 4 else fck_std
             e0 = _zahl(t[4]) if len(t) == 5 else 0.0
-            r = rechne_unbewehrt(b, h, l0_m, fck, e0, N, phi_ef=phi_ef, ausgabe=ausgabe)
+            r = rechne_unbewehrt(b, h, l0_m, fck, e0, N, phi_ef=phi_ef)
             zeilen.append([f"{fmt(b, 0)}×{fmt(h, 0)}", f"{fck:.0f}", fmt(e0, 1), fmt(r["lam"], 1),
                            fmt(r["theta"], 3), fmt(N, 2), fmt(r["N_Rd"], 2),
                            f"{fmt(r['ausn'] * 100, 2)} %", "✅ erfüllt" if r["ok"] else "⚠️ nicht erfüllt"])
