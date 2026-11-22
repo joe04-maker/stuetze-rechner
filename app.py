@@ -4,6 +4,7 @@ import streamlit as st
 import nennkruemmung_stuetze as nk
 import unbewehrt_stuetze as ub
 import vergleich
+import abbildungen as abb
 
 st.set_page_config(page_title="Tragfähigkeit von Betonstützen", page_icon="🏗️", layout="wide")
 st.title("🏗️ Tragfähigkeit von Betonstützen")
@@ -117,7 +118,9 @@ with top_bew:
                 G = eigenlast(b, h, l0)
                 st.caption(f"N_Ed = 1,5 · {N:g}" + (f" + 1,35 · {G:.2f} (G_k = {b:g}·{h:g}·{l0:g}·25)" if mit_g else "")
                            + f" = {ned(N, b, h, l0):.2f} kN")
-                html(nk.ausgabe(nk.berechne(b, h, N_Ed_kN=ned(N, b, h, l0), **kw)))
+                E = nk.berechne(b, h, N_Ed_kN=ned(N, b, h, l0), **kw)
+                html(nk.ausgabe(E))
+                abb.zeige_bewehrt(st, E)
             except ValueError as ex:
                 html(nk._box("rot", f"❌ Eingabefehler: {ex}"))
             except Exception as ex:

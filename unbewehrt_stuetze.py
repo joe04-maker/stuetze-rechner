@@ -4,7 +4,6 @@ import re
 
 from nennkruemmung_stuetze import _box, _html_tabelle, _karte, fmt
 
-FCK_OPTIONEN_UNBEW = (8, 12, 16, 20, 25, 30, 35, 40, 45, 50)   # vereinfachtes Verfahren 14.4.5.2 (1): f_ck < 55 N/mm²
 FCK_MAX_UNBEW = 55.0   # DIN EN 1992-1-1:2025-09, 14.4.5.2 (1): unbewehrter Beton mit f_ck < 55 MPa
 LAM_LIM = 86.0      # EC2:2025-09, 14.4.5.1(5): für unbewehrte Ortbetonwände; für Stützen keine eigene Grenze genannt
 ALPHA_CC = 0.85     # f_cd = α·f_ck/γ_C  (bewusst 0,85 gewählt; EC2:2025: η_cc·k_tc, k_tc = 1,0 oder 0,85)
